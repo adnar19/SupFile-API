@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-dotenv.config;
+dotenv.config();
 import express, { Request, Response, NextFunction } from "express";
 import http from "http";
 import bodyParser from "body-parser";

@@ -1,6 +1,8 @@
-node_modules/
-.env
-.env/local
-.env.*.local
-dist/
-package-lock.json
+/node_modules
+/.env
+/generated/prisma
+# Prisma
+prisma/migrations/*
+!prisma/migrations/.gitkeep
+
+/.qodo

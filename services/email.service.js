@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid';
-import prisma from '../config/prisma.js';
+import prisma from '../lib/prisma.js';
 
 /**
  * Créer un token de vérification email

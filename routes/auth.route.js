@@ -1,13 +1,13 @@
 import express from 'express';
-import { register, login, logout } from '../controllers/auth.controller.js';
+import { signup, signin, signout } from '../controllers/auth.controller.js';
 
 const router = express.Router();
 
 /**
  * @swagger
  * tags:
- *   name: Auth
- *   description: API pour l'authentification des utilisateurs
+ *   - name: Auth
+ *     description: API pour l'authentification des utilisateurs
  */
 
 /**
@@ -16,7 +16,8 @@ const router = express.Router();
  *   post:
  *     summary: Enregistrer un nouvel utilisateur
  *     description: Enregistre un nouvel utilisateur avec les informations fournies.
- *     tags: [Auth]
+ *     tags:
+ *       - Auth
  *     requestBody:
  *       required: true
  *       content:
@@ -40,7 +41,7 @@ const router = express.Router();
  *                 format: password
  *                 example: "MotDePasse123!"
  *     responses:
- *       200:
+ *       '200':
  *         description: Utilisateur enregistré avec succès
  *         content:
  *           application/json:
@@ -54,30 +55,28 @@ const router = express.Router();
  *                   type: object
  *                   properties:
  *                     id:
- *                       type: integer
- *                       example: 1
+ *                       type: string
+ *                       example: "c56a4180-65aa-42ec-a945-5fd21dec0538"
  *                     fullName:
  *                       type: string
  *                       example: "Jean Dupont"
-
  *                     email:
  *                       type: string
  *                       example: "jean.dupont@example.com"
- *        
- *     400:
- *       description: Erreur lors de l'enregistrement de l'utilisateur
- *       content:
- *        application/json:
+ *       '400':
+ *         description: Erreur lors de l'enregistrement de l'utilisateur
+ *         content:
+ *           application/json:
  *             schema:
  *               type: object
  *               properties:
  *                 message:
  *                   type: string
  *                   example: "Email déjà utilisé"
- *    500:
- *      description: Erreur serveur
- *      content:
- *        application/json:
+ *       '500':
+ *         description: Erreur serveur
+ *         content:
+ *           application/json:
  *             schema:
  *               type: object
  *               properties:
@@ -85,7 +84,7 @@ const router = express.Router();
  *                   type: string
  *                   example: "Erreur lors de l'enregistrement de l'utilisateur"
  */
-router.post('/register', register);
+router.post('/register', signup);
 
 /**
  * @swagger
@@ -93,7 +92,8 @@ router.post('/register', register);
  *   post:
  *     summary: Authentifier un utilisateur et générer un token JWT
  *     description: L'utilisateur peut se connecter avec son email ou son username
- *    tags: [Auth]
+ *     tags:
+ *       - Auth
  *     requestBody:
  *       required: true
  *       content:
@@ -114,8 +114,8 @@ router.post('/register', register);
  *                 example: "MotDePasse123!"
  *                 description: Le mot de passe de l'utilisateur (au moins 8 caractères, incluant des lettres majuscules, minuscules, chiffres et caractères spéciaux)
  *     responses:
- *       200:
- *         description: Authentification reussie
+ *       '200':
+ *         description: Authentification réussie
  *         content:
  *           application/json:
  *             schema:
@@ -123,11 +123,23 @@ router.post('/register', register);
  *               properties:
  *                 message:
  *                   type: string
- *                   example: "Authentification reussie"
+ *                   example: "Authentification réussie"
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       example: "a1b2c3d4e5f6g7h8i9j0"
+ *                     fullName:
+ *                       type: string
+ *                       example: "Jean Dupont"
+ *                     email:
+ *                       type: string
+ *                       example: "jean.dupont@example.com"            
  *                 token:
  *                   type: string
- *                  example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
- *       400:
+ *                   example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *       '400':
  *         description: Erreur lors de l'authentification
  *         content:
  *           application/json:
@@ -137,7 +149,7 @@ router.post('/register', register);
  *                 message:
  *                   type: string
  *                   example: "Email ou mot de passe incorrect"
- *       500:
+ *       '500':
  *         description: Erreur serveur
  *         content:
  *           application/json:
@@ -148,7 +160,7 @@ router.post('/register', register);
  *                   type: string
  *                   example: "Erreur lors de l'authentification"
  */
-router.post('/login', login);
+router.post('/login', signin);
 
 /**
  * @swagger
@@ -156,9 +168,10 @@ router.post('/login', login);
  *   post:
  *     summary: Déconnecter un utilisateur en invalidant son token JWT
  *     description: Déconnecte l'utilisateur en supprimant le token JWT côté client.
- *     tags: [Auth]
+ *     tags:
+ *       - Auth
  *     responses:
- *       200:
+ *       '200':
  *         description: Déconnexion réussie
  *         content:
  *           application/json:
@@ -168,7 +181,7 @@ router.post('/login', login);
  *                 message:
  *                   type: string
  *                   example: "Déconnexion réussie"
- *       500:
+ *       '500':
  *         description: Erreur lors de la déconnexion
  *         content:
  *           application/json:
@@ -179,5 +192,5 @@ router.post('/login', login);
  *                   type: string
  *                   example: "Erreur lors de la déconnexion"
  */
-router.post('/logout', logout);
+router.post('/logout', signout);
 export default router;

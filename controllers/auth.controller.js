@@ -1,13 +1,13 @@
 import bcrypt from 'bcrypt';
-import prisma from '../config/prisma.js';
+import prisma from '../lib/prisma.js';
 import { ErrorTypes } from '../utils/ApiError.js';
-import { validateSignupData, validateSigninData } from '../utils/validators.js';
+import { validateSignupData, validateSigninData } from '../utils/validator.js';
 import { 
   createVerificationToken, 
   sendVerificationEmail,
   verifyAndConsumeToken 
 } from '../services/email.service.js';
-import path from 'node:path';
+import jwt from 'jsonwebtoken';
 
 // ============================================
 // SIGNUP (Inscription manuelle - Email/Password)

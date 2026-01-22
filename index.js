@@ -4,6 +4,8 @@ import cookieParser from 'cookie-parser';
 import setupSwagger from './utils/swagger.js';
 import cors from 'cors';
 import prisma ,{ disconnectPrisma} from './lib/prisma.js';
+import AuthRouter from './routes/auth.route.js';
+
 const app = express();
 const PORT = 3000;
 const server = http.createServer(app);
@@ -12,10 +14,10 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
 // CORS
-// app.use(cors({
-//   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-//   credentials: true
-// }));
+app.use(cors({}));
+
+// ROUTES
+app.use('/auth', AuthRouter);
 
 // ============================================
 // TEST DE CONNEXION DATABASE

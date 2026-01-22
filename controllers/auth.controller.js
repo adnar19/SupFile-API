@@ -7,6 +7,7 @@ import {
   sendVerificationEmail,
   verifyAndConsumeToken 
 } from '../services/email.service.js';
+import path from 'node:path';
 
 // ============================================
 // SIGNUP (Inscription manuelle - Email/Password)
@@ -334,7 +335,7 @@ export const firebaseOAuthCallback = async (req, res, next) => {
     });
 
   } catch (error) {
-    next(error);
+    throw ErrorTypes.InternalError(error.message);
   }
 };
 
@@ -386,7 +387,7 @@ export const verifyEmail = async (req, res, next) => {
     });
 
   } catch (error) {
-    next(error);
+     throw ErrorTypes.InternalError(error.message);
   }
 };
 
@@ -429,7 +430,7 @@ export const resendVerificationEmail = async (req, res, next) => {
     });
 
   } catch (error) {
-    next(error);
+     throw ErrorTypes.InternalError(error.message);
   }
 };
 
@@ -478,6 +479,26 @@ export const getCurrentUser = async (req, res, next) => {
     });
 
   } catch (error) {
-    next(error);
+     throw ErrorTypes.InternalError(error.message);
+  }
+};
+
+export const signout = async (req, res, next) => {
+  try {
+    // Clear the authentication cookie
+    res.clearCookie('token', {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      path: '/'
+    })
+    .status(200)
+    .json({
+      success: true,
+      statusCode: 200,
+      message: 'Déconnexion réussie'
+    });
+  } catch (error) {
+     throw ErrorTypes.InternalError(error.message);
   }
 };

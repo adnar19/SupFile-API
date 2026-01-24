@@ -16,7 +16,6 @@ export const createVerificationToken = async (userId, email) => {
     where: {
       userId: userId,                    // ✅ Seulement pour cet utilisateur
       type: 'EMAIL_VERIFICATION',
-      usedAt: null,                      // ✅ Seulement les non utilisés
     }
   });
 

@@ -35,9 +35,7 @@ model User {
   passwordChangedAt DateTime? @map("password_changed_at")
   lastLoginAt       DateTime? @map("last_login_at")
   
-  // Role
-  role              UserRole @default(User)
-  isActive          Boolean  @default(true) @map("is_active")
+  isActive          Boolean  @default(false) @map("is_active")
   
   // Storage
   storageUsed       BigInt   @default(0) @map("storage_used")
@@ -120,8 +118,7 @@ model VerificationToken {
   token     String   @unique
   type      TokenType @default(EMAIL_VERIFICATION)
   
-  // Sécurité
-  usedAt    DateTime? @map("used_at")
+  // Expiration seulement (pas de usedAt car suppression immédiate après usage)
   expiresAt DateTime  @map("expires_at")
   
   // Timestamps

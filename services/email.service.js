@@ -1,29 +1,29 @@
 import { nanoid } from 'nanoid';
 import prisma from '../lib/prisma.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 /**
  * Créer un token de vérification email
- * ✅ Stockage dans table dédiée (verification_tokens)
- * ✅ Auto-invalidation après utilisation
- * ✅ Expiration 24h sans utilisation
+ * ✅ Invalide SEULEMENT les anciens tokens NON UTILISÉS du MÊME utilisateur
+ * ✅ Durée de vie : 24h max
+ * ✅ Auto-suppression après utilisation
  */
 export const createVerificationToken = async (userId, email) => {
-  // 1. Invalider tous les anciens tokens non utilisés
-  await prisma.verificationToken.updateMany({
+  // 1. Supprimer UNIQUEMENT les anciens tokens NON UTILISÉS de CET utilisateur
+  await prisma.verificationToken.deleteMany({
     where: {
-      userId,
+      userId: userId,                    // ✅ Seulement pour cet utilisateur
       type: 'EMAIL_VERIFICATION',
-      usedAt: null,
-    },
-    data: {
-      expiresAt: new Date(), // Expirer immédiatement
+      usedAt: null,                      // ✅ Seulement les non utilisés
     }
   });
 
   // 2. Créer nouveau token
   const token = nanoid(64); // Token sécurisé 64 caractères
   const expiresAt = new Date();
-  expiresAt.setHours(expiresAt.getHours() + 24);
+  expiresAt.setHours(expiresAt.getHours() + 24); // ✅ 24h de validité
 
   await prisma.verificationToken.create({
     data: {
@@ -40,7 +40,7 @@ export const createVerificationToken = async (userId, email) => {
 /**
  * Vérifier et consommer un token
  * ✅ Vérifie validité
- * ✅ Marque comme utilisé automatiquement
+ * ✅ Supprime immédiatement après utilisation (pas de marquage)
  * ✅ Impossible de réutiliser
  */
 export const verifyAndConsumeToken = async (token) => {
@@ -64,22 +64,23 @@ export const verifyAndConsumeToken = async (token) => {
     throw new Error('Invalid verification token');
   }
 
-  // 2. Vérifier si déjà utilisé
+  // 2. Vérifier si déjà utilisé (ne devrait pas arriver car supprimé après usage)
   if (verificationToken.usedAt) {
     throw new Error('This verification link has already been used');
   }
 
-  // 3. Vérifier expiration
+  // 3. Vérifier expiration (24h max)
   if (now > verificationToken.expiresAt) {
+    // Supprimer le token expiré
+    await prisma.verificationToken.delete({
+      where: { id: verificationToken.id }
+    });
     throw new Error('This verification link has expired. Please request a new one');
   }
 
-  // 4. Marquer comme utilisé (ATOMIQUE)
-  await prisma.verificationToken.update({
-    where: { id: verificationToken.id },
-    data: {
-      usedAt: now,
-    }
+  // 4. ✅ SUPPRIMER immédiatement le token (pas de marquage usedAt)
+  await prisma.verificationToken.delete({
+    where: { id: verificationToken.id }
   });
 
   return {
@@ -177,20 +178,19 @@ export const sendVerificationEmail = async (email, token, fullName) => {
 
 /**
  * Nettoyer les tokens expirés
- * ✅ À lancer via CRON (quotidien)
+ * ✅ Supprime les tokens expirés (> 24h)
+ * ✅ Les tokens utilisés sont déjà supprimés automatiquement
+ * ✅ À lancer via CRON (quotidien recommandé)
  */
 export const cleanupExpiredTokens = async () => {
   const now = new Date();
 
   const result = await prisma.verificationToken.deleteMany({
     where: {
-      OR: [
-        { expiresAt: { lt: now } },
-        { usedAt: { not: null } }, // Supprimer aussi les tokens utilisés
-      ]
+      expiresAt: { lt: now }, // ✅ Seulement les tokens expirés (> 24h)
     }
   });
 
-  console.log(`🧹 ${result.count} tokens nettoyés`);
+  console.log(`🧹 ${result.count} tokens expirés nettoyés`);
   return result.count;
 };

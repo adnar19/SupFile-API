@@ -5,7 +5,7 @@ import setupSwagger from './utils/swagger.js';
 import cors from 'cors';
 import prisma ,{ disconnectPrisma} from './lib/prisma.js';
 import AuthRouter from './routes/auth.route.js';
-
+import { startCronJobs } from './utils/cron.js';
 const app = express();
 const PORT = 3000;
 const server = http.createServer(app);
@@ -22,7 +22,7 @@ app.use('/auth', AuthRouter);
 // ============================================
 // TEST DE CONNEXION DATABASE
 // ============================================
-
+startCronJobs();
 const DatabaseConnection = async () => {
   try {
     await prisma.$connect();

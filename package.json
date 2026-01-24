@@ -36,6 +36,7 @@
     "gitignore": "^0.7.0",
     "jsonwebtoken": "^9.0.3",
     "nanoid": "^5.1.6",
+    "node-cron": "^4.2.1",
     "postgres": "^3.4.8",
     "resend": "^6.8.0",
     "swagger-jsdoc": "^6.2.8",

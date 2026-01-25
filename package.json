@@ -28,6 +28,7 @@
   "homepage": "https://github.com/adnar19/SupFile-API#readme",
   "dependencies": {
     "@prisma/client": "^6.19.2",
+    "axios": "^1.13.3",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -37,6 +38,7 @@
     "jsonwebtoken": "^9.0.3",
     "nanoid": "^5.1.6",
     "node-cron": "^4.2.1",
+    "nodemailer": "^7.0.12",
     "postgres": "^3.4.8",
     "resend": "^6.8.0",
     "swagger-jsdoc": "^6.2.8",

@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,52 +7,86 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// User model
 model User {
   id                String   @id @default(uuid())
-  
-  // Authentication
   email             String   @unique
-  password     String?  @map("password_hash")
-  
-  // OAuth
+  password          String?  @map("password_hash")
   oauthProvider     String?  @map("oauth_provider")
   oauthId           String?  @map("oauth_id")
-  
-  // Profile
   fullName          String?  @map("fullName")
   avatarUrl         String?  @map("avatar_url")
-  
-  // Security
   emailVerified     Boolean  @default(false) @map("email_verified")
   passwordChangedAt DateTime? @map("password_changed_at")
   lastLoginAt       DateTime? @map("last_login_at")
-  
   isActive          Boolean  @default(false) @map("is_active")
-  
-  // Storage
   storageUsed       BigInt   @default(0) @map("storage_used")
-  storageQuota      BigInt   @default(32212254720) @map("storage_quota") // 30 GB
-  
-  // Preferences
-  theme             theme   @default(light)
-  
-  // Timestamps
+  storageQuota      BigInt   @default(32212254720) @map("storage_quota")
+  theme             theme    @default(light)
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
-  
-  // Relations pour la table users
+
   folders           Folder[]
+  files             File[]
   verificationTokens VerificationToken[]
-  
-  
+
   @@map("users")
   @@index([email])
   @@index([oauthProvider, oauthId])
 }
 
-enum UserRole {
-  User
+model Folder {
+  id          String   @id @default(uuid())
+  name        String
+  path        String?  
+  parentId    String?  @map("parent_id")
+  parent      Folder?  @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  subfolders  Folder[] @relation("FolderHierarchy")
+  ownerId     String   @map("owner_id")
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  files       File[]
+
+  color       String?
+  icon        String?
+  isDeleted   Boolean  @default(false) @map("is_deleted")
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("folders")
+  @@index([ownerId])
+  @@index([parentId])
+}
+
+model File {
+  id          String   @id @default(uuid())
+  name        String   
+  storageName String   
+  mimeType    String   @map("mime_type")
+  size        BigInt   
+  ownerId     String   @map("owner_id")
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  folderId    String?  @map("folder_id")
+  folder      Folder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  isDeleted   Boolean  @default(false) @map("is_deleted")
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("files")
+  @@index([ownerId])
+  @@index([folderId])
+}
+
+model VerificationToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  type      TokenType @default(EMAIL_VERIFICATION)
+  expiresAt DateTime  @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("verification_tokens")
 }
 
 enum theme {
@@ -66,71 +94,7 @@ enum theme {
   dark
 }
 
-// Folder model
-model Folder {
-  id          String   @id @default(uuid())
-  
-  // Basic info
-  name        String
-  path        String?  // Materialized path for performance
-  
-  // Hierarchy
-  parentId    String?  @map("parent_id") // Stocker l'identifiant technique du parent.
-  parent      Folder?  @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade) //Te permettre de "joindre" les données.Quand tu veux récupérer les informations du parent (son nom, sa couleur, son chemin) sans faire une deuxième requête manuelle.
-  subfolders  Folder[] @relation("FolderHierarchy")
-  
-  // Owner
-  ownerId     String   @map("owner_id")
-  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  
-  // Customization
-  color       String?
-  icon        String?
-  
-  // Soft delete
-  isDeleted   Boolean  @default(false) @map("is_deleted")
-  deletedAt   DateTime? @map("deleted_at")
-  
-  // Timestamps
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  
-
-  
-  @@map("folders")
-  @@index([ownerId])
-  @@index([parentId])
-  @@index([path])
-  @@index([isDeleted])
-}
-
-// Token model
-
-model VerificationToken {
-  id        String   @id @default(uuid())
-  
-  // Association utilisateur
-  userId    String   @map("user_id")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  // Token
-  token     String   @unique
-  type      TokenType @default(EMAIL_VERIFICATION)
-  
-  // Expiration seulement (pas de usedAt car suppression immédiate après usage)
-  expiresAt DateTime  @map("expires_at")
-  
-  // Timestamps
-  createdAt DateTime @default(now()) @map("created_at")
-  
-  @@map("verification_tokens")
-  @@index([userId])
-  @@index([token])
-  @@index([expiresAt])
-}
-
 enum TokenType {
   EMAIL_VERIFICATION
   PASSWORD_RESET
 }
-

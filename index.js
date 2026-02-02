@@ -14,7 +14,12 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
 // CORS
-app.use(cors({}));
+app.use(cors({
+  origin: true, // Autorise toutes les origines en développement (pratique pour Ngrok)
+  credentials: true, // Permet l'envoi de cookies si nécessaire
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 // ROUTES
 app.use('/auth', AuthRouter);

@@ -1,5 +1,5 @@
-// ... (tes imports)
-
+import jwt from 'jsonwebtoken';
+import prisma from '../lib/prisma.js'; // Chemin à vérifier selon ton dossier
 export const protect = async (req, res, next) => {
   try {
     let token;
@@ -11,14 +11,18 @@ export const protect = async (req, res, next) => {
     }
 
     if (!token) {
-      throw ErrorTypes.Unauthorized('Vous n\'êtes pas connecté');
+       // Si tu as enlevé l'import de ErrorTypes, utilise une réponse classique :
+       return res.status(401).json({ message: "Vous n'êtes pas connecté" });
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    // Ajoute ce log pour voir exactement ce qu'il y a dans ton token dans ton terminal
+    console.log("Token décodé :", decoded);
 
-    // ATTENTION ICI : On utilise decoded.userId car c'est ce qu'on a mis dans le token
     const currentUser = await prisma.user.findUnique({
-      where: { id: decoded.userId }, 
+      // On teste les deux : si userId est vide, il prendra id
+      where: { id: decoded.userId || decoded.id }, 
       select: {
         id: true,
         email: true,
@@ -28,22 +32,17 @@ export const protect = async (req, res, next) => {
     });
 
     if (!currentUser) {
-      throw ErrorTypes.Unauthorized('L\'utilisateur n\'existe plus');
+      return res.status(401).json({ message: "L'utilisateur n'existe plus" });
     }
 
     if (!currentUser.isActive) {
-      throw ErrorTypes.Forbidden('Votre compte a été désactivé');
+      return res.status(403).json({ message: "Votre compte a été désactivé" });
     }
 
     req.user = currentUser;
     next();
   } catch (error) {
-    if (error.name === 'JsonWebTokenError') {
-      next(ErrorTypes.Unauthorized('Token invalide'));
-    } else if (error.name === 'TokenExpiredError') {
-      next(ErrorTypes.Unauthorized('Session expirée'));
-    } else {
-      next(error);
-    }
+    console.error("Erreur Auth Middleware:", error);
+    return res.status(401).json({ message: "Session invalide ou expirée" });
   }
 };

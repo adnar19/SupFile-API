@@ -6,3 +6,4 @@ prisma/migrations/*
 !prisma/migrations/.gitkeep
 
 /.qodo
+/.uploads

@@ -27,7 +27,7 @@ app.use(cors({
 
 // ROUTES
 app.use('/auth', AuthRouter);
-app.use('/files', FileRouter); // <-- AJOUTÉ : La porte d'entrée est maintenant ouverte
+app.use('/files', FileRouter); 
 
 // DATABASE CONNECTION
 startCronJobs();

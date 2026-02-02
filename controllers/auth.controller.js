@@ -162,3 +162,52 @@ export const resendVerificationEmail = async (req, res, next) => {
 export const signout = async (req, res, next) => {
   res.clearCookie('access_token').status(200).json({ success: true, message: 'Déconnecté' });
 };
+// ============================================
+// FILE MANAGEMENT (UPLOAD & LIST)
+// ============================================
+
+export const uploadFile = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      throw ErrorTypes.BadRequest('Aucun fichier fourni');
+    }
+
+    const file = await prisma.file.create({
+      data: {
+        name: req.file.originalname,
+        storageName: req.file.filename,
+        mimeType: req.file.mimetype,
+        size: req.file.size.toString(),
+        ownerId: req.user.id, // Vient du middleware protect
+      }
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Fichier uploadé et enregistré en base !',
+      file
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getUserFiles = async (req, res, next) => {
+  try {
+    const files = await prisma.file.findMany({
+      where: { 
+        ownerId: req.user.id,
+        isDeleted: false 
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.status(200).json({
+      success: true,
+      count: files.length,
+      data: files
+    });
+  } catch (error) {
+    next(error);
+  }
+};

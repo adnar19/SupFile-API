@@ -5,23 +5,31 @@ import setupSwagger from './utils/swagger.js';
 import cors from 'cors';
 import prisma ,{ disconnectPrisma} from './lib/prisma.js';
 import AuthRouter from './routes/auth.route.js';
+import FileRouter from './routes/files.route.js'; 
 import { startCronJobs } from './utils/cron.js';
+
 const app = express();
 const PORT = 3000;
 const server = http.createServer(app);
 
+// MIDDLEWARES
 app.use(express.json());
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
+
 // CORS
-app.use(cors({}));
+app.use(cors({
+  origin: true, 
+  credentials: true, 
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 // ROUTES
 app.use('/auth', AuthRouter);
+app.use('/files', FileRouter); 
 
-// ============================================
-// TEST DE CONNEXION DATABASE
-// ============================================
+// DATABASE CONNECTION
 startCronJobs();
 const DatabaseConnection = async () => {
   try {
@@ -33,20 +41,19 @@ const DatabaseConnection = async () => {
   }
 };
 
-// server listen
+// SERVER LISTEN
 server.listen(PORT, async () => {
   console.log(`🚀 Server is running on http://localhost:${PORT}`);
-  try{
+  try {
      await DatabaseConnection();
     setupSwagger(app, PORT);
     console.info(`ℹ️ Swagger documentation available at http://localhost:${PORT}/docs`);
-  }catch(error){
+  } catch(error) {
     console.error('❌ Unable to connect to the database:', error);
   }
-  
 });
 
-// Middleware handling  Errors
+// ERROR HANDLING
 app.use((err, req, res, next) => {
   const statusCode = err.statusCode || 500;
   const message = err.message || 'Internal Server Error';
@@ -57,39 +64,14 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Graceful shutdown
+// GRACEFUL SHUTDOWN
 const gracefulShutdown = async () => {
-  console.log('\n📛 Received shutdown signal, closing server gracefully...');
-  
-  // Fermer le serveur HTTP
+  console.log('\n📛 Received shutdown signal...');
   server.close(async () => {
-    console.log('✅ HTTP server closed');
-    
-    // Déconnecter Prisma
     await disconnectPrisma();
-    
-    console.log('👋 Goodbye!');
     process.exit(0);
   });
-
-  // Force shutdown après 10 secondes
-  setTimeout(() => {
-    console.error('❌ Could not close connections in time, forcefully shutting down');
-    process.exit(1);
-  }, 10000);
 };
 
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
-
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-  gracefulShutdown();
-});
-
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught Exception:', error);
-  gracefulShutdown();
-});

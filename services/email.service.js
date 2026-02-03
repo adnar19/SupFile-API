@@ -1,196 +1,126 @@
 import { nanoid } from 'nanoid';
 import prisma from '../lib/prisma.js';
 import dotenv from 'dotenv';
+import nodemailer from 'nodemailer';
+import axios from 'axios'; // N'oublie pas de faire : npm install axios
 
 dotenv.config();
 
 /**
- * Créer un token de vérification email
- * ✅ Invalide SEULEMENT les anciens tokens NON UTILISÉS du MÊME utilisateur
- * ✅ Durée de vie : 24h max
- * ✅ Auto-suppression après utilisation
+ * Helper pour détecter l'URL Ngrok dynamiquement
+ * Si Ngrok tourne, on prend son URL, sinon on utilise localhost
  */
+const getBaseUrl = async () => {
+  // En production, on utilise l'URL fixe définie dans le .env
+  if (process.env.NODE_ENV === 'production') {
+    return process.env.FRONTEND_URL || 'https://votre-domaine.com';
+  }
+
+  try {
+    // Ngrok expose une API locale sur le port 4040 pour donner ses infos
+    const response = await axios.get('http://127.0.0.1:4040/api/tunnels', { timeout: 1000 });
+    const publicUrl = response.data.tunnels[0].public_url;
+    console.log(`📡 [Auto-Config] URL Ngrok détectée : ${publicUrl}`);
+    return publicUrl;
+  } catch (error) {
+    // Si l'API ngrok ne répond pas, on revient par défaut sur localhost
+    return process.env.FRONTEND_URL || 'http://localhost:3000';
+  }
+};
+
+/**
+ * Configuration du transporteur Nodemailer (Gmail)
+ */
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
 export const createVerificationToken = async (userId, email) => {
-  // 1. Supprimer UNIQUEMENT les anciens tokens NON UTILISÉS de CET utilisateur
   await prisma.verificationToken.deleteMany({
-    where: {
-      userId: userId,                    // ✅ Seulement pour cet utilisateur
-      type: 'EMAIL_VERIFICATION',
-      usedAt: null,                      // ✅ Seulement les non utilisés
-    }
+    where: { userId, type: 'EMAIL_VERIFICATION' }
   });
 
-  // 2. Créer nouveau token
-  const token = nanoid(64); // Token sécurisé 64 caractères
+  const token = nanoid(64);
   const expiresAt = new Date();
-  expiresAt.setHours(expiresAt.getHours() + 24); // ✅ 24h de validité
+  expiresAt.setHours(expiresAt.getHours() + 24);
 
   await prisma.verificationToken.create({
-    data: {
-      userId,
-      token,
-      type: 'EMAIL_VERIFICATION',
-      expiresAt,
-    }
+    data: { userId, token, type: 'EMAIL_VERIFICATION', expiresAt }
   });
 
   return token;
 };
 
-/**
- * Vérifier et consommer un token
- * ✅ Vérifie validité
- * ✅ Supprime immédiatement après utilisation (pas de marquage)
- * ✅ Impossible de réutiliser
- */
 export const verifyAndConsumeToken = async (token) => {
   const now = new Date();
-
-  // 1. Trouver le token
   const verificationToken = await prisma.verificationToken.findUnique({
     where: { token },
-    include: {
-      user: {
-        select: {
-          id: true,
-          email: true,
-          emailVerified: true,
-        }
-      }
-    }
+    include: { user: { select: { id: true, email: true } } }
   });
 
-  if (!verificationToken) {
-    throw new Error('Invalid verification token');
-  }
-
-  // 2. Vérifier si déjà utilisé (ne devrait pas arriver car supprimé après usage)
-  if (verificationToken.usedAt) {
-    throw new Error('This verification link has already been used');
-  }
-
-  // 3. Vérifier expiration (24h max)
+  if (!verificationToken) throw new Error('Token invalide');
   if (now > verificationToken.expiresAt) {
-    // Supprimer le token expiré
-    await prisma.verificationToken.delete({
-      where: { id: verificationToken.id }
-    });
-    throw new Error('This verification link has expired. Please request a new one');
+    await prisma.verificationToken.delete({ where: { id: verificationToken.id } });
+    throw new Error('Lien expiré');
   }
 
-  // 4. ✅ SUPPRIMER immédiatement le token (pas de marquage usedAt)
-  await prisma.verificationToken.delete({
-    where: { id: verificationToken.id }
-  });
-
-  return {
-    userId: verificationToken.userId,
-    email: verificationToken.user.email,
-  };
+  await prisma.verificationToken.delete({ where: { id: verificationToken.id } });
+  return { userId: verificationToken.userId, email: verificationToken.user.email };
 };
 
 /**
- * Envoyer l'email de vérification
- * ✅ Resend en production (3000 emails/mois gratuits)
- * ✅ Console en dev
+ * Envoi de l'email avec détection automatique de l'URL
  */
 export const sendVerificationEmail = async (email, token, fullName) => {
-  const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
+  // --- DÉTECTION AUTOMATIQUE DE L'URL ---
+  const baseUrl = await getBaseUrl();
+  const verificationUrl = `${baseUrl}/auth/verify-email/${token}`;
 
-  // DEV : Console uniquement
-  if (process.env.NODE_ENV === 'development') {
-    console.log('\n' + '='.repeat(60));
-    console.log('📧 EMAIL DE VÉRIFICATION');
-    console.log('='.repeat(60));
-    console.log(`À: ${email}`);
-    console.log(`Nom: ${fullName || 'Utilisateur'}`);
-    console.log(`Lien: ${verificationUrl}`);
-    console.log(`Expire: Dans 24 heures`);
-    console.log('='.repeat(60) + '\n');
-    return;
+  const emailHtml = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">
+      <div style="background: #667eea; color: white; padding: 20px; text-align: center;">
+        <h1>Vérifiez votre compte SUPFile</h1>
+      </div>
+      <div style="padding: 30px; color: #333;">
+        <p>Bonjour <strong>${fullName || 'Utilisateur'}</strong> 👋,</p>
+        <p>Pour activer votre compte, cliquez sur le bouton ci-dessous :</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${verificationUrl}" style="background: #667eea; color: white; padding: 15px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+            ✅ Activer mon compte
+          </a>
+        </div>
+        <p style="font-size: 12px; color: #666;">Lien envoyé via : ${baseUrl}</p>
+      </div>
+    </div>
+  `;
+
+  // 1. Essai avec Gmail (Nodemailer)
+  if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    try {
+      await transporter.sendMail({
+        from: `"SUPFile" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: 'Vérifiez votre adresse email - SUPFile',
+        html: emailHtml,
+      });
+      console.log(`✅ [Nodemailer] Email envoyé à ${email}`);
+      return;
+    } catch (error) {
+      console.error('❌ [Nodemailer] Erreur:', error.message);
+    }
   }
 
-  // PRODUCTION : Resend
-  try {
-    const { Resend } = await import('resend');
-    const resend = new Resend(process.env.RESEND_API_KEY);
-
-    await resend.emails.send({
-      from: 'SUPFile <onboarding@resend.dev>',
-      to: email,
-      subject: 'Vérifiez votre adresse email - SUPFile',
-      html: `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <meta charset="utf-8">
-            <style>
-              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-              .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-              .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
-              .button { display: inline-block; padding: 15px 30px; background: #667eea; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
-              .footer { text-align: center; margin-top: 30px; color: #999; font-size: 12px; }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <div class="header">
-                <h1>🎉 Bienvenue sur SUPFile !</h1>
-              </div>
-              <div class="content">
-                <p>Bonjour ${fullName || 'là'} 👋</p>
-                
-                <p>Merci de vous être inscrit. Vérifiez votre email en cliquant ci-dessous :</p>
-                
-                <div style="text-align: center;">
-                  <a href="${verificationUrl}" class="button">
-                    ✅ Vérifier mon email
-                  </a>
-                </div>
-                
-                <p>Ou copiez ce lien :</p>
-                <p style="background: white; padding: 10px; border-radius: 5px; word-break: break-all;">
-                  ${verificationUrl}
-                </p>
-                
-                <p><strong>⏰ Ce lien expire dans 24 heures.</strong></p>
-                
-                <p>Si vous n'avez pas créé de compte, ignorez cet email.</p>
-                
-                <div class="footer">
-                  <p>© ${new Date().getFullYear()} SUPFile. Tous droits réservés.</p>
-                </div>
-              </div>
-            </div>
-          </body>
-        </html>
-      `
-    });
-
-    console.log(`✅ Email envoyé à ${email}`);
-  } catch (error) {
-    console.error('❌ Erreur envoi email:', error);
-    console.log('\n⚠️ FALLBACK - Lien de vérification:');
-    console.log(verificationUrl);
-  }
+  // 2. Fallback console (toujours utile si l'email échoue)
+  console.log(`🔗 [Fallback] Lien de vérification : ${verificationUrl}`);
 };
 
-/**
- * Nettoyer les tokens expirés
- * ✅ Supprime les tokens expirés (> 24h)
- * ✅ Les tokens utilisés sont déjà supprimés automatiquement
- * ✅ À lancer via CRON (quotidien recommandé)
- */
 export const cleanupExpiredTokens = async () => {
-  const now = new Date();
-
   const result = await prisma.verificationToken.deleteMany({
-    where: {
-      expiresAt: { lt: now }, // ✅ Seulement les tokens expirés (> 24h)
-    }
+    where: { expiresAt: { lt: new Date() } }
   });
-
-  console.log(`🧹 ${result.count} tokens expirés nettoyés`);
   return result.count;
 };

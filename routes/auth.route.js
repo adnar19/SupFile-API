@@ -1,3 +1,4 @@
+// Dans routes/auth.route.js
 import express from 'express';
 import { 
   signup, 
@@ -8,181 +9,12 @@ import {
   resendVerificationEmail,
   getCurrentUser
 } from '../controllers/auth.controller.js';
-
+import { protect } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
-/**
- * @swagger
- * tags:
- *   - name: Auth
- *     description: API pour l'authentification des utilisateurs
- */
-
-/**
- * @swagger
- * /auth/register:
- *   post:
- *     summary: Enregistrer un nouvel utilisateur
- *     description: Enregistre un nouvel utilisateur avec les informations fournies. Un email de vérification sera envoyé.
- *     tags:
- *       - Auth
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - fullName
- *               - email
- *               - password
- *             properties:
- *               fullName:
- *                 type: string
- *                 example: "Jean Dupont"
- *               email:
- *                 type: string
- *                 format: email
- *                 example: "jean.dupont@example.com"
- *               password:
- *                 type: string
- *                 format: password
- *                 example: "MotDePasse123!"
- *     responses:
- *       '201':
- *         description: Utilisateur enregistré avec succès
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 statusCode:
- *                   type: number
- *                   example: 201
- *                 message:
- *                   type: string
- *                   example: "Compte créé avec succès. Veuillez vérifier votre email pour activer votre compte."
- *                 data:
- *                   type: object
- *                   properties:
- *                     user:
- *                       type: object
- *                       properties:
- *                         id:
- *                           type: string
- *                           example: "c56a4180-65aa-42ec-a945-5fd21dec0538"
- *                         fullName:
- *                           type: string
- *                           example: "Jean Dupont"
- *                         email:
- *                           type: string
- *                           example: "jean.dupont@example.com"
- *                         emailVerified:
- *                           type: boolean
- *                           example: false
- *                         isActive:
- *                           type: boolean
- *                           example: false
- *                     emailVerificationRequired:
- *                       type: boolean
- *                       example: true
- *       '409':
- *         description: Cet email est déjà utilisé
- *       '500':
- *         description: Erreur serveur
- */
-router.post('/register', signup);
-
-/**
- * @swagger
- * /auth/login:
- *   post:
- *     summary: Authentifier un utilisateur et générer un token JWT
- *     description: L'utilisateur peut se connecter avec son email et mot de passe. L'email doit être vérifié.
- *     tags:
- *       - Auth
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - email
- *               - password
- *             properties:
- *               email:
- *                 type: string
- *                 format: email
- *                 example: "jean.dupont@example.com"
- *               password:
- *                 type: string
- *                 format: password
- *                 example: "MotDePasse123!"
- *     responses:
- *       '200':
- *         description: Authentification réussie
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 statusCode:
- *                   type: number
- *                   example: 200
- *                 message:
- *                   type: string
- *                   example: "Connexion réussie"
- *                 data:
- *                   type: object
- *                   properties:
- *                     user:
- *                       type: object
- *                     token:
- *                       type: string
- *                       example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
- *       '401':
- *         description: Email ou mot de passe incorrect
- *       '403':
- *         description: Email non vérifié ou compte désactivé
- */
-router.post('/login', signin);
-
-/**
- * @swagger
- * /auth/logout:
- *   post:
- *     summary: Déconnecter un utilisateur
- *     description: Déconnecte l'utilisateur en supprimant le cookie de session.
- *     tags:
- *       - Auth
- *     security:
- *       - cookieAuth: []
- *     responses:
- *       '200':
- *         description: Déconnexion réussie
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 statusCode:
- *                   type: number
- *                   example: 200
- *                 message:
- *                   type: string
- *                   example: "Déconnexion réussie"
- */
+router.post('/register', signup); // On lie l'URL /register à la fonction signup
+router.post('/login', signin);    // On lie l'URL /login à la fonction signin
 router.post('/logout', signout);
 
 /**
@@ -340,7 +172,7 @@ router.get('/verify-email/:token', verifyEmail);
  *       '401':
  *         description: Non authentifié
  */
-router.post('/resend-verification', resendVerificationEmail);
+router.post('/resend-verification', protect, resendVerificationEmail);
 
 
 /**

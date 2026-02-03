@@ -1,14 +1,12 @@
+// Dans routes/auth.route.js
 import express from 'express';
-import { uploadFile, getUserFiles } from '../controllers/auth.controller.js';
-import { protect } from '../middlewares/auth.middleware.js';
-import { upload } from '../middlewares/upload.middleware.js';
+// On utilise signin et signup car c'est comme ça qu'ils sont nommés dans ton controller
+import { signin, signup, signout } from '../controllers/auth.controller.js'; 
 
 const router = express.Router();
 
-// POST /files/upload -> Upload un fichier
-router.post('/upload', protect, upload.single('file'), uploadFile);
-
-// GET /files -> Liste les fichiers de l'utilisateur
-router.get('/', protect, getUserFiles);
+router.post('/register', signup); // On lie l'URL /register à la fonction signup
+router.post('/login', signin);    // On lie l'URL /login à la fonction signin
+router.post('/logout', signout);
 
 export default router;

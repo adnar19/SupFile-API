@@ -8,7 +8,7 @@ import {
   resendVerificationEmail,
   getCurrentUser
 } from '../controllers/auth.controller.js';
-import { protect } from '../middlewares/auth.middleware.js';
+
 
 const router = express.Router();
 
@@ -340,7 +340,7 @@ router.get('/verify-email/:token', verifyEmail);
  *       '401':
  *         description: Non authentifié
  */
-router.post('/resend-verification', protect, resendVerificationEmail);
+router.post('/resend-verification', resendVerificationEmail);
 
 
 /**

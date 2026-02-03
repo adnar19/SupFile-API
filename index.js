@@ -1,7 +1,7 @@
 import express from 'express';
 import http from 'http';
 import cookieParser from 'cookie-parser';
-import setupSwagger from './utils/swagger.js';
+import { setupSwagger } from './utils/swagger.js';
 import cors from 'cors';
 import prisma ,{ disconnectPrisma} from './lib/prisma.js';
 import AuthRouter from './routes/auth.route.js';

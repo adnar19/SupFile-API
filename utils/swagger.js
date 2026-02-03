@@ -1,44 +1,32 @@
-import swaggerJSDoc from 'swagger-jsdoc';
+import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
-import { createRequire } from 'module';
-
-
-const require = createRequire(import.meta.url);
-const packageJson = require('../package.json');
 
 const options = {
   definition: {
     openapi: '3.0.0',
-  info: {
-    title: 'SupFile API Documentation',
-    version: packageJson.version,
-    description: 'API documentation for SupFile service',
-  },
-  components:{
-    securitySchemes: {
-      BearerAuth: {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
+    info: {
+      title: 'SupFile API Documentation',
+      version: '1.0.0',
+      description: 'API documentation for SupFile service',
+    },
+    components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+        },
       },
     },
+    security: [{ bearerAuth: [] }],
   },
-  security: [{ BearerAuth: [],}],
-  },
-  apis: ['./routes/*.js', './models/*.js'],
+  // Vérifie bien que ce chemin pointe vers tes fichiers de routes
+  apis: ['./routes/*.js'], 
 };
 
+const specs = swaggerJsdoc(options);
 
-
-const swaggerSpec = swaggerJSDoc(options);
-
-const setupSwagger = (app) => {
-  app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-  app.get('/docs.json', (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    res.send(swaggerSpec);
-  });
-
+// AJOUTE BIEN "export" DEVANT LA FONCTION
+export const setupSwagger = (app, port) => {
+  app.use('/docs', swaggerUi.serve, swaggerUi.setup(specs));
 };
-
-export default setupSwagger;

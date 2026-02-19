@@ -39,6 +39,18 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+// Vérification de la connexion SMTP au démarrage
+if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+  transporter.verify((error) => {
+    if (error) {
+      console.error('❌ [Nodemailer] Erreur de connexion SMTP:', error.message);
+      console.error('👉 Astuce: Si vous utilisez Gmail, avez-vous généré un "Mot de passe d\'application" ?');
+    } else {
+      console.log('✅ [Nodemailer] Prêt à envoyer des emails');
+    }
+  });
+}
+
 export const createVerificationToken = async (userId, email) => {
   await prisma.verificationToken.deleteMany({
     where: { userId, type: 'EMAIL_VERIFICATION' }

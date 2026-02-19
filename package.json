@@ -28,12 +28,12 @@
   "homepage": "https://github.com/adnar19/SupFile-API#readme",
   "dependencies": {
     "@prisma/client": "^6.19.2",
-    "axios": "^1.13.4",
+    "axios": "^1.13.3",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "express": "^5.2.1",
-    "firebase-admin": "^12.7.0",
+    "firebase-admin": "^13.6.0",
     "gitignore": "^0.7.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.0.2",
@@ -49,7 +49,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^25.0.9",
     "dotenv": "^17.2.3",
-    "nodemon": "^3.1.11",
+    "nodemon": "^1.0.2",
     "prisma": "^6.19.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"

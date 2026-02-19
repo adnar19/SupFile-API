@@ -93,7 +93,7 @@ export const signin = async (req, res, next) => {
       throw ErrorTypes.Forbidden('Veuillez vérifier votre email.');
     }
 
-    const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '24h' });
+    const token = jwt.sign({ id: user.id, email: user.email, FullName: user.fullName }, process.env.JWT_SECRET, { expiresIn: '24h' });
 
     res.cookie('access_token', token, {
       httpOnly: true,

@@ -39,7 +39,7 @@ router.post('/upload', protect, upload.single('file'), async (req, res) => {
     console.error("Erreur upload Prisma:", error);
     res.status(500).json({ message: "Erreur lors de l'enregistrement du fichier." });
   }
-}); // <--- L'accolade de fin du POST était ici !
+}); 
 
 // ============================================
 // ROUTE GET : LISTE (Bien séparée maintenant)

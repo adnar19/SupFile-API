@@ -1,9 +1,11 @@
 import jwt from 'jsonwebtoken';
-import prisma from '../lib/prisma.js'; // Chemin à vérifier selon ton dossier
+import prisma from '../lib/prisma.js';
+
 export const protect = async (req, res, next) => {
   try {
     let token;
 
+    // 1. Extraction du token (Cookie ou Header)
     if (req.cookies && req.cookies.access_token) {
       token = req.cookies.access_token;
     } else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
@@ -11,17 +13,14 @@ export const protect = async (req, res, next) => {
     }
 
     if (!token) {
-       // Si tu as enlevé l'import de ErrorTypes, utilise une réponse classique :
-       return res.status(401).json({ message: "Vous n'êtes pas connecté" });
+       return res.status(401).json({ valid: false, message: "Vous n'êtes pas connecté" });
     }
 
+    // 2. Vérification du JWT
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
-    // Ajoute ce log pour voir exactement ce qu'il y a dans ton token dans ton terminal
-    console.log("Token décodé :", decoded);
-
+    // 3. Recherche de l'utilisateur dans la base
     const currentUser = await prisma.user.findUnique({
-      // On teste les deux : si userId est vide, il prendra id
       where: { id: decoded.userId || decoded.id }, 
       select: {
         id: true,
@@ -32,17 +31,20 @@ export const protect = async (req, res, next) => {
     });
 
     if (!currentUser) {
-      return res.status(401).json({ message: "L'utilisateur n'existe plus" });
+      return res.status(401).json({ valid: false, message: "L'utilisateur n'existe plus" });
     }
 
+    // 4. Vérification du statut du compte
     if (!currentUser.isActive) {
-      return res.status(403).json({ message: "Votre compte a été désactivé" });
+      return res.status(403).json({ valid: false, message: "Votre compte a été désactivé" });
     }
 
+    // On injecte l'user dans la requête et on passe à la suite
     req.user = currentUser;
     next();
   } catch (error) {
-    console.error("Erreur Auth Middleware:", error);
-    return res.status(401).json({ message: "Session invalide ou expirée" });
+    // Si jwt.verify échoue (expiration ou mauvais secret), on arrive ici
+    console.error("Erreur Auth Middleware:", error.message);
+    return res.status(401).json({ valid: false, message: "Session invalide ou expirée" });
   }
 };

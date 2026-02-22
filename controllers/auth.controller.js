@@ -8,6 +8,12 @@ import {
   verifyAndConsumeToken 
 } from '../services/email.service.js';
 import jwt from 'jsonwebtoken';
+import admin from 'firebase-admin';
+
+// Initialisation de Firebase Admin pour la vérification des tokens
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
 
 // ============================================
 // SIGNUP
@@ -104,6 +110,114 @@ export const signin = async (req, res, next) => {
       success: true,
       message: 'Connecté',
       data: { token }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================
+// OAuth GOOGLE 
+// ============================================
+export const OauthSignin = async (req, res, next) => {
+  try {
+      const { idToken } = req.body;
+      if (!idToken) throw ErrorTypes.BadRequest("ID Token requis");
+
+      // Vérification du token ID avec Firebase Admin
+      // Cela garantit que l'email provient bien de Google/Provider et n'est pas usurpé
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      const { email } = decodedToken;
+
+      if (!email) throw ErrorTypes.BadRequest("Email invalide dans le token");
+
+      const user = await prisma.user.findUnique({
+        where: { email: email.toLowerCase() }
+      });
+      if (!user) {
+        throw ErrorTypes.NotFound('Utilisateur non trouvé');
+      }
+      const token = jwt.sign({ id: user.id, email: user.email, fullName: user.fullName, storageUsed: user.storageUsed, storageQuota: user.storageQuota }, process.env.JWT_SECRET, { expiresIn: '24h' });
+      
+      res.cookie('access_token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: 24 * 60 * 60 * 1000
+      }).status(200).json({
+        success: true,
+        message: 'Connecté via Google',
+        data: { token }
+      });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================
+// OAuth SIGNUP
+// ============================================
+export const OauthSignup = async (req, res, next) => {
+  try {
+    const { idToken, fullName, photo, provider } = req.body;
+
+    if (!idToken) throw ErrorTypes.BadRequest("ID Token requis");
+
+    // SECURITY: Verify token to get the real email
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const { email } = decodedToken;
+
+    if (!email) throw ErrorTypes.BadRequest("Email invalide dans le token");
+
+    const existingUser = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+
+    if (existingUser) {
+      throw ErrorTypes.Conflict('Cet email est déjà utilisé. Veuillez vous connecter.');
+    }
+   // Génération d'un mot de passe aléatoire pour les utilisateurs OAuth 
+    const generatedPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
+    // Hashage du mot de passe généré une bonne pratique de le stocker de manière sécurisée
+    const hashedPassword = await bcrypt.hash(generatedPassword, 12);
+
+    const user = await prisma.user.create({
+      data: {
+        email: email.toLowerCase(),
+        password: hashedPassword,
+        fullName: fullName,
+        emailVerified: true, // OAuth users are verified by the provider
+        isActive: true,
+        profilePicture: photo || null,
+      }
+    });
+
+    await prisma.folder.create({
+      data: {
+        name: 'My Files',
+        ownerId: user.id,
+        path: '/My Files'
+      }
+    });
+
+    const token = jwt.sign({ id: user.id, email: user.email, fullName: user.fullName }, process.env.JWT_SECRET, { expiresIn: '24h' });
+
+    res.cookie('access_token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 24 * 60 * 60 * 1000
+    }).status(201).json({
+      success: true,
+      message: `Compte créé via ${provider || 'OAuth'}`,
+      data: {
+        token,
+        user: {
+          ...user,
+          storageUsed: Number(user.storageUsed),
+          storageQuota: Number(user.storageQuota),
+        }
+      }
     });
   } catch (error) {
     next(error);

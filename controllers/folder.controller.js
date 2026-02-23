@@ -1,0 +1,406 @@
+import prisma from '../lib/prisma.js';
+import { ErrorTypes } from '../utils/ApiError.js';
+import archiver from 'archiver';
+import path from 'path';
+import fs from 'fs';
+// npm install archiver
+
+// ============================================
+// CREATE FOLDER
+// ============================================
+export const createFolder = async (req, res, next) => {
+  try {
+    const { name, parentId } = req.body;
+    const userId = req.user.id;
+
+    if (!name) {
+      throw ErrorTypes.BadRequest('Le nom du dossier est requis');
+    }
+
+    let parentPath = '';
+    let finalParentId = parentId;
+
+    // If parentId is provided, verify it exists and belongs to user
+    if (parentId) {
+      const parentFolder = await prisma.folder.findUnique({
+        where: { id: parentId }
+      });
+
+      if (!parentFolder || parentFolder.ownerId !== userId) {
+        throw ErrorTypes.NotFound('Dossier parent introuvable');
+      }
+      parentPath = parentFolder.path;
+    } else {
+      // If no parentId, try to find the root folder
+      const rootFolder = await prisma.folder.findFirst({
+        where: { ownerId: userId, parentId: null }
+      });
+      if (rootFolder) {
+        finalParentId = rootFolder.id;
+        parentPath = rootFolder.path;
+      }
+    }
+
+    const folder = await prisma.folder.create({
+      data: {
+        name,
+        path: `${parentPath}/${name}`,
+        parentId: finalParentId,
+        ownerId: userId
+      }
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Dossier créé avec succès',
+      data: folder
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================
+// GET FOLDER CONTENTS (Navigation)
+// ============================================
+export const getFolderContents = async (req, res, next) => {
+  try {
+    const { id } = req.params; // Can be 'root' or a UUID
+    const userId = req.user.id;
+
+    let currentFolder;
+
+    // Handle "root" alias
+    if (id === 'root') {
+      currentFolder = await prisma.folder.findFirst({
+        where: { ownerId: userId, parentId: null }
+      });
+      
+      // Fallback: Create root if it doesn't exist (safety net)
+      if (!currentFolder) {
+        currentFolder = await prisma.folder.create({
+          data: { name: 'My Files', ownerId: userId, path: '/My Files' }
+        });
+      }
+    } else {
+      currentFolder = await prisma.folder.findUnique({
+        where: { id }
+      });
+      if (!currentFolder || currentFolder.ownerId !== userId) {
+        throw ErrorTypes.NotFound('Dossier introuvable');
+      }
+    }
+
+    // Fetch subfolders and files in parallel
+    const [folders, files] = await Promise.all([
+      prisma.folder.findMany({
+        where: { 
+          parentId: currentFolder.id, 
+          ownerId: userId,
+          isDeleted: false 
+        },
+        orderBy: { name: 'asc' }
+      }),
+      prisma.file.findMany({
+        where: { 
+          folderId: currentFolder.id, 
+          ownerId: userId,
+          isDeleted: false 
+        },
+        orderBy: { createdAt: 'desc' }
+      })
+    ]);
+
+    // Build Breadcrumbs (Ancestors)
+    const breadcrumbs = [];
+    let ancestor = currentFolder;
+    // Simple recursive lookup for breadcrumbs (can be optimized later)
+    while (ancestor) {
+      breadcrumbs.unshift({ id: ancestor.id, name: ancestor.name });
+      if (ancestor.parentId) {
+        ancestor = await prisma.folder.findUnique({ where: { id: ancestor.parentId } });
+      } else {
+        ancestor = null;
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        currentFolder,
+        breadcrumbs,
+        folders,
+        files: files.map(f => ({ ...f, size: f.size.toString() }))
+      }
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================
+// DELETE FOLDER (Soft Delete)
+// ============================================
+export const deleteFolder = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const folder = await prisma.folder.findUnique({ where: { id } });
+
+    if (!folder || folder.ownerId !== userId) {
+      throw ErrorTypes.NotFound('Dossier introuvable');
+    }
+
+    // Suppression récursive (Soft Delete)
+    // On utilise une transaction pour garantir que tout ou rien n'est supprimé
+    await prisma.$transaction(async (tx) => {
+      // 1. Identifier tous les sous-dossiers (le dossier cible + ses descendants)
+      // On utilise le chemin (path) pour trouver les descendants efficacement
+      const foldersToDelete = await tx.folder.findMany({
+        where: {
+          ownerId: userId,
+          OR: [
+            { id: id }, // Le dossier lui-même
+            { path: { startsWith: `${folder.path}/` } } // Ses enfants (ex: /Parent/Enfant)
+          ]
+        },
+        select: { id: true }
+      });
+
+      const folderIds = foldersToDelete.map(f => f.id);
+
+      // 2. Marquer les dossiers comme supprimés
+      await tx.folder.updateMany({
+        where: { id: { in: folderIds } },
+        data: { isDeleted: true }
+      });
+
+      // 3. Marquer les fichiers contenus dans ces dossiers comme supprimés
+      await tx.file.updateMany({
+        where: { folderId: { in: folderIds } },
+        data: { isDeleted: true }
+      });
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Dossier et son contenu déplacés dans la corbeille'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================
+// RENAME FOLDER
+// ============================================
+export const renameFolder = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    const userId = req.user.id;
+
+    if (!name) throw ErrorTypes.BadRequest("Le nom est requis");
+
+    const folder = await prisma.folder.findUnique({ where: { id } });
+    if (!folder || folder.ownerId !== userId) throw ErrorTypes.NotFound("Dossier introuvable");
+
+    // Mise à jour du chemin pour le dossier et ses enfants
+    // Note: C'est une opération coûteuse si l'arborescence est profonde.
+    // Pour simplifier ici, on met juste à jour le nom. 
+    // Dans un système de production avec "path" matérialisé, il faudrait mettre à jour tous les enfants :
+    // oldPath: /A/OldName -> newPath: /A/NewName
+    // child: /A/OldName/B -> /A/NewName/B
+
+    const oldPath = folder.path;
+    const newPath = oldPath.substring(0, oldPath.lastIndexOf('/')) + '/' + name;
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Renommer le dossier
+      await tx.folder.update({
+        where: { id },
+        data: { name, path: newPath }
+      });
+
+      // 2. Mettre à jour les chemins des enfants (SQL brut souvent plus simple pour le remplacement de chaîne)
+      // Ici on le fait en JS pour rester agnostique, mais attention aux perfs sur gros volumes
+      const children = await tx.folder.findMany({
+        where: { 
+          ownerId: userId,
+          path: { startsWith: oldPath + '/' } 
+        }
+      });
+
+      for (const child of children) {
+        const childNewPath = newPath + child.path.substring(oldPath.length);
+        await tx.folder.update({
+          where: { id: child.id },
+          data: { path: childNewPath }
+        });
+      }
+    });
+
+    res.status(200).json({ success: true, message: "Dossier renommé" });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================
+// MOVE FOLDER
+// ============================================
+export const moveFolder = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { parentId } = req.body; // null pour root
+    const userId = req.user.id;
+
+    const folder = await prisma.folder.findUnique({ where: { id } });
+    if (!folder || folder.ownerId !== userId) throw ErrorTypes.NotFound("Dossier introuvable");
+
+    let newPathPrefix = '';
+    let finalParentId = parentId;
+
+    if (parentId) {
+      const parent = await prisma.folder.findUnique({ where: { id: parentId } });
+      if (!parent || parent.ownerId !== userId) throw ErrorTypes.BadRequest("Dossier de destination invalide");
+      
+      // Empêcher le déplacement d'un dossier dans lui-même ou ses enfants
+      if (parent.path.startsWith(folder.path)) {
+         throw ErrorTypes.BadRequest("Impossible de déplacer un dossier dans lui-même");
+      }
+      newPathPrefix = parent.path;
+    } else {
+      // Déplacement vers la racine (My Files)
+      const rootFolder = await prisma.folder.findFirst({ where: { ownerId: userId, parentId: null } });
+      if (rootFolder) {
+        finalParentId = rootFolder.id;
+        newPathPrefix = rootFolder.path;
+      }
+    }
+
+    const oldPath = folder.path;
+    const newPath = `${newPathPrefix}/${folder.name}`;
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Déplacer le dossier
+      await tx.folder.update({
+        where: { id },
+        data: { parentId: finalParentId, path: newPath }
+      });
+
+      // 2. Mettre à jour les chemins des enfants
+      const children = await tx.folder.findMany({
+        where: { ownerId: userId, path: { startsWith: oldPath + '/' } }
+      });
+
+      for (const child of children) {
+        const childNewPath = newPath + child.path.substring(oldPath.length);
+        await tx.folder.update({
+          where: { id: child.id },
+          data: { path: childNewPath }
+        });
+      }
+    });
+
+    res.status(200).json({ success: true, message: "Dossier déplacé" });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================
+// RESTORE FOLDER
+// ============================================
+export const restoreFolder = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const folder = await prisma.folder.findUnique({ where: { id } });
+    if (!folder || folder.ownerId !== userId) throw ErrorTypes.NotFound("Dossier introuvable");
+
+    // Restauration récursive : on restaure le dossier et tout ce qu'il contient
+    // Note: Si le parent du dossier est toujours supprimé, ce dossier sera orphelin dans l'UI
+    // Une logique plus poussée pourrait vérifier le parent.
+    await prisma.folder.update({ where: { id }, data: { isDeleted: false } });
+    await prisma.file.updateMany({ where: { folderId: id }, data: { isDeleted: false } });
+    // On pourrait aussi restaurer les sous-dossiers récursivement via le path si nécessaire
+
+    res.status(200).json({ success: true, message: "Dossier restauré" });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================
+// DOWNLOAD FOLDER (ZIP)
+// ============================================
+export const downloadFolder = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const rootFolder = await prisma.folder.findUnique({ where: { id } });
+    if (!rootFolder || rootFolder.ownerId !== userId) throw ErrorTypes.NotFound("Dossier introuvable");
+
+    // 1. Récupérer tous les fichiers et sous-dossiers récursivement
+    const folders = await prisma.folder.findMany({
+      where: { 
+        ownerId: userId,
+        isDeleted: false,
+        OR: [{ id: id }, { path: { startsWith: rootFolder.path + '/' } }]
+      }
+    });
+    
+    const folderIds = folders.map(f => f.id);
+    const files = await prisma.file.findMany({
+      where: { 
+        folderId: { in: folderIds },
+        isDeleted: false
+      }
+    });
+
+    // 2. Préparer l'archive
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    
+    res.attachment(`${rootFolder.name}.zip`);
+    archive.pipe(res);
+
+    // 3. Ajouter les structures de dossiers (pour s'assurer que les dossiers vides sont inclus)
+    for (const folder of folders) {
+      if (folder.id === rootFolder.id) continue;
+
+      // Calculer le chemin relatif par rapport au dossier racine téléchargé
+      const relativePath = folder.path.substring(rootFolder.path.length + 1);
+      archive.append(null, { name: relativePath + '/' });
+    }
+
+    // 3. Ajouter les fichiers à l'archive en reconstruisant la structure
+    for (const file of files) {
+      const physicalPath = path.join(process.cwd(), 'uploads', file.storageName);
+      
+      if (fs.existsSync(physicalPath)) {
+        // Trouver le dossier parent de ce fichier pour déterminer son chemin relatif dans le ZIP
+        const parentFolder = folders.find(f => f.id === file.folderId);
+        let relativePath = file.name;
+
+        if (parentFolder && parentFolder.id !== rootFolder.id) {
+          // Calculer le chemin relatif par rapport au dossier racine téléchargé
+          // Ex: Root=/A, File=/A/B/file.txt -> relative = B/file.txt
+          const folderPart = parentFolder.path.substring(rootFolder.path.length + 1); // +1 pour le slash
+          relativePath = path.join(folderPart, file.name);
+        }
+
+        archive.file(physicalPath, { name: relativePath });
+      }
+    }
+
+    await archive.finalize();
+
+  } catch (error) {
+    next(error);
+  }
+};

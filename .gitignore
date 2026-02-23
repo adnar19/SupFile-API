@@ -7,3 +7,4 @@ prisma/migrations/*
 
 /.qodo
 /.uploads
+firebase.js

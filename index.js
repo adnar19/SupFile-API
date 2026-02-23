@@ -6,6 +6,7 @@ import cors from 'cors';
 import prisma ,{ disconnectPrisma} from './lib/prisma.js';
 import AuthRouter from './routes/auth.route.js';
 import FileRouter from './routes/files.route.js'; 
+import FolderRouter from './routes/folders.route.js';
 import { startCronJobs } from './utils/cron.js';
 
 const app = express();
@@ -27,6 +28,7 @@ app.use(cors({
 
 // ROUTES
 app.use('/auth', AuthRouter);
+app.use('/folders', FolderRouter);
 app.use('/files', FileRouter); 
 
 // DATABASE CONNECTION

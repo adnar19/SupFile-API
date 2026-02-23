@@ -45,8 +45,6 @@ model Folder {
   owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   files       File[]
 
-  color       String?
-  icon        String?
   isDeleted   Boolean  @default(false) @map("is_deleted")
   deletedAt   DateTime? @map("deleted_at")
   createdAt   DateTime @default(now()) @map("created_at")
@@ -55,6 +53,8 @@ model Folder {
   @@map("folders")
   @@index([ownerId])
   @@index([parentId])
+  // Unicité du nom du dossier au sein d'un dossier parent (pour les éléments non supprimés)
+  @@unique([name, parentId, ownerId], where: { isDeleted: false })
 }
 
 model File {
@@ -75,6 +75,8 @@ model File {
   @@map("files")
   @@index([ownerId])
   @@index([folderId])
+  // Unicité du nom du fichier au sein d'un dossier (pour les éléments non supprimés)
+  @@unique([name, folderId, ownerId], where: { isDeleted: false })
 }
 
 model VerificationToken {

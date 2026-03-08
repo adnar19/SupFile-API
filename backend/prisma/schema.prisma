@@ -54,7 +54,7 @@ model Folder {
   @@index([ownerId])
   @@index([parentId])
   // Unicité du nom du dossier au sein d'un dossier parent (pour les éléments non supprimés)
-  @@unique([name, parentId, ownerId], where: { isDeleted: false })
+  
 }
 
 model File {
@@ -76,7 +76,7 @@ model File {
   @@index([ownerId])
   @@index([folderId])
   // Unicité du nom du fichier au sein d'un dossier (pour les éléments non supprimés)
-  @@unique([name, folderId, ownerId], where: { isDeleted: false })
+ 
 }
 
 model VerificationToken {

@@ -1,10 +1,4 @@
-/node_modules
-/.env
-/generated/prisma
-# Prisma
-prisma/migrations/*
-!prisma/migrations/.gitkeep
-
-/.qodo
-/.uploads
-firebase.js
+./node_modules
+package-lock.json
+package.json
+frontend

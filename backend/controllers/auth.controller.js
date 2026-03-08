@@ -99,7 +99,7 @@ export const signin = async (req, res, next) => {
       throw ErrorTypes.Forbidden('Veuillez vérifier votre email.');
     }
 
-    const token = jwt.sign({ id: user.id, email: user.email, FullName: user.fullName }, process.env.JWT_SECRET, { expiresIn: '24h' });
+    const token = jwt.sign({ id: user.id, email: user.email, fullName: user.fullName }, process.env.JWT_SECRET, { expiresIn: '24h' });
 
     res.cookie('access_token', token, {
       httpOnly: true,
@@ -137,7 +137,21 @@ export const OauthSignin = async (req, res, next) => {
       if (!user) {
         throw ErrorTypes.NotFound('Utilisateur non trouvé');
       }
-      const token = jwt.sign({ id: user.id, email: user.email, fullName: user.fullName, storageUsed: user.storageUsed, storageQuota: user.storageQuota }, process.env.JWT_SECRET, { expiresIn: '24h' });
+
+      // Update user info if logging in via OAuth (Link account / Verify email)
+      if (!user.emailVerified || !user.oauthId) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            emailVerified: true,
+            oauthProvider: user.oauthProvider || decodedToken.firebase.sign_in_provider,
+            oauthId: user.oauthId || decodedToken.uid,
+            avatarUrl: user.avatarUrl || decodedToken.picture || null
+          }
+        });
+      }
+
+      const token = jwt.sign({ id: user.id, email: user.email, fullName: user.fullName }, process.env.JWT_SECRET, { expiresIn: '24h' });
       
       res.cookie('access_token', token, {
         httpOnly: true,
@@ -159,13 +173,14 @@ export const OauthSignin = async (req, res, next) => {
 // ============================================
 export const OauthSignup = async (req, res, next) => {
   try {
-    const { idToken, fullName, photo, provider } = req.body;
+    const { idToken } = req.body;
 
     if (!idToken) throw ErrorTypes.BadRequest("ID Token requis");
 
     // SECURITY: Verify token to get the real email
     const decodedToken = await admin.auth().verifyIdToken(idToken);
-    const { email } = decodedToken;
+    const { email, name, picture, uid, firebase } = decodedToken;
+    const provider = firebase.sign_in_provider;
 
     if (!email) throw ErrorTypes.BadRequest("Email invalide dans le token");
 
@@ -185,10 +200,24 @@ export const OauthSignup = async (req, res, next) => {
       data: {
         email: email.toLowerCase(),
         password: hashedPassword,
-        fullName: fullName,
+        fullName: name, // Use name from verified token
         emailVerified: true, // OAuth users are verified by the provider
         isActive: true,
-        profilePicture: photo || null,
+        avatarUrl: picture || null, // Correct field name and use picture from token
+        oauthProvider: provider,
+        oauthId: uid,
+      },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        theme: true,
+        emailVerified: true,
+        oauthProvider: true,
+        isActive: true,
+        storageUsed: true,
+        storageQuota: true,
+        createdAt: true,
       }
     });
 
@@ -209,7 +238,7 @@ export const OauthSignup = async (req, res, next) => {
       maxAge: 24 * 60 * 60 * 1000
     }).status(201).json({
       success: true,
-      message: `Compte créé via ${provider || 'OAuth'}`,
+      message: `Compte créé via ${provider ? provider.split('.')[0].charAt(0).toUpperCase() + provider.split('.')[0].slice(1) : 'OAuth'}`,
       data: {
         token,
         user: {
@@ -252,7 +281,14 @@ export const getCurrentUser = async (req, res, next) => {
         id: true, email: true, fullName: true, storageUsed: true, storageQuota: true
       }
     });
-    res.status(200).json({ success: true, data: user });
+
+    const safeUser = {
+      ...user,
+      storageUsed: user.storageUsed.toString(),
+      storageQuota: user.storageQuota.toString()
+    };
+
+    res.status(200).json({ success: true, data: safeUser });
   } catch (error) {
     next(error);
   }

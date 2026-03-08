@@ -6,7 +6,7 @@ import cors from 'cors';
 import prisma ,{ disconnectPrisma} from './lib/prisma.js';
 import AuthRouter from './routes/auth.route.js';
 import FileRouter from './routes/files.route.js'; 
-import FolderRouter from './routes/folders.route.js';
+import FolderRouter from './routes/folder.route.js';
 import { startCronJobs } from './utils/cron.js';
 
 const app = express();
@@ -25,6 +25,12 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
+// Security Headers for Google Auth for the login popup
+app.use((req, res, next) => {
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+  next();
+});
 
 // ROUTES
 app.use('/auth', AuthRouter);

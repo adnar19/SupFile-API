@@ -17,6 +17,13 @@ if (!admin.apps.length) {
   admin.initializeApp();
 }
 
+// Helper to format provider name for messages
+const formatProviderName = (providerId) => {
+    if (!providerId) return 'OAuth';
+    const name = providerId.split('.')[0];
+    return name.charAt(0).toUpperCase() + name.slice(1);
+};
+
 // ============================================
 // SIGNUP
 // ============================================
@@ -120,7 +127,7 @@ export const signin = async (req, res, next) => {
 };
 
 // ============================================
-// OAuth GOOGLE 
+// OAuth Signin
 // ============================================
 export const OauthSignin = async (req, res, next) => {
   try {
@@ -130,7 +137,8 @@ export const OauthSignin = async (req, res, next) => {
       // Vérification du token ID avec Firebase Admin
       // Cela garantit que l'email provient bien de Google/Provider et n'est pas usurpé
       const decodedToken = await admin.auth().verifyIdToken(idToken);
-      const { email } = decodedToken;
+      const { email, firebase } = decodedToken;
+      const provider = firebase.sign_in_provider;
 
       if (!email) throw ErrorTypes.BadRequest("Email invalide dans le token");
 
@@ -163,7 +171,7 @@ export const OauthSignin = async (req, res, next) => {
         maxAge: 24 * 60 * 60 * 1000
       }).status(200).json({
         success: true,
-        message: 'Connecté via Google',
+      message: `Connecté via ${formatProviderName(provider)}`,
         data: { token }
       });
   } catch (error) {
@@ -241,7 +249,7 @@ export const OauthSignup = async (req, res, next) => {
       maxAge: 24 * 60 * 60 * 1000
     }).status(201).json({
       success: true,
-      message: `Compte créé via ${provider ? provider.split('.')[0].charAt(0).toUpperCase() + provider.split('.')[0].slice(1) : 'OAuth'}`,
+      message: `Compte créé via ${formatProviderName(provider)}`,
       data: {
         token,
         user: {

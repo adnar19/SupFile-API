@@ -5,7 +5,9 @@ import { validateSignupData, validateSigninData } from '../utils/validator.js';
 import { 
   createVerificationToken, 
   sendVerificationEmail,
-  verifyAndConsumeToken 
+  verifyAndConsumeToken,
+  createPasswordResetToken,
+  sendPasswordResetEmail
 } from '../services/email.service.js';
 import jwt from 'jsonwebtoken';
 import admin from 'firebase-admin';
@@ -34,9 +36,10 @@ export const signup = async (req, res, next) => {
       data: {
         email: email.toLowerCase(),
         password: hashedPassword,
-        fullName: fullName?.trim() || null,
+        fullName: fullName || null,
         emailVerified: false,
         isActive: false,
+        avatarUrl: '../utils/default-avatar-profile.avif',
       },
       select: {
         id: true,
@@ -47,6 +50,7 @@ export const signup = async (req, res, next) => {
         isActive: true,
         storageUsed: true,
         storageQuota: true,
+        avatarUrl: true,
         createdAt: true,
       }
     });
@@ -59,18 +63,17 @@ export const signup = async (req, res, next) => {
       }
     });
 
-    const verificationToken = await createVerificationToken(user.id, user.email);
+    const verificationToken = await createVerificationToken(user.id);
     await sendVerificationEmail(user.email, verificationToken, user.fullName);
 
     res.status(201).json({
       success: true,
-      statusCode: 201,
       message: 'Compte créé. Vérifiez votre email.',
       data: {
         user: {
           ...user,
-          storageUsed: Number(user.storageUsed),
-          storageQuota: Number(user.storageQuota),
+          storageUsed: user.storageUsed.toString(),
+          storageQuota: user.storageQuota.toString(),
         }
       }
     });
@@ -243,8 +246,8 @@ export const OauthSignup = async (req, res, next) => {
         token,
         user: {
           ...user,
-          storageUsed: Number(user.storageUsed),
-          storageQuota: Number(user.storageQuota),
+          storageUsed: user.storageUsed.toString(),
+          storageQuota: user.storageQuota.toString(),
         }
       }
     });
@@ -259,7 +262,7 @@ export const OauthSignup = async (req, res, next) => {
 export const verifyEmail = async (req, res, next) => {
   try {
     const { token } = req.params;
-    const { userId } = await verifyAndConsumeToken(token);
+    const { userId } = await verifyAndConsumeToken(token, 'EMAIL_VERIFICATION');
     await prisma.user.update({
       where: { id: userId },
       data: { emailVerified: true, isActive: true }
@@ -300,10 +303,76 @@ export const getCurrentUser = async (req, res, next) => {
 export const resendVerificationEmail = async (req, res, next) => {
     try {
       const user = await prisma.user.findUnique({ where: { id: req.user.id } });
-      const token = await createVerificationToken(user.id, user.email);
+      if (!user) throw ErrorTypes.NotFound("Utilisateur non trouvé.");
+      if (user.emailVerified) return res.status(200).json({ success: true, message: "Votre email est déjà vérifié." });
+
+      const token = await createVerificationToken(user.id);
       await sendVerificationEmail(user.email, token, user.fullName);
       res.status(200).json({ success: true, message: 'Email renvoyé' });
     } catch (error) { next(error); }
+};
+
+// ============================================
+// FORGOT PASSWORD
+// ============================================
+export const forgotPassword = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      throw ErrorTypes.BadRequest("L'adresse email est requise.");
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+
+    // IMPORTANT: Ne pas révéler si l'utilisateur existe ou non.
+    // Toujours envoyer une réponse de succès pour éviter les attaques par énumération d'utilisateurs.
+    if (user) {
+      const resetToken = await createPasswordResetToken(user.id);
+      await sendPasswordResetEmail(user.email, resetToken, user.fullName);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Si un compte est associé à cet email, un lien de réinitialisation a été envoyé."
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================
+// RESET PASSWORD
+// ============================================
+export const resetPassword = async (req, res, next) => {
+  try {
+    const { token } = req.params;
+    const { password, confirmPassword } = req.body;
+
+    if (password !== confirmPassword) {
+      throw ErrorTypes.BadRequest("Les mots de passe ne correspondent pas.");
+    }
+
+    validatePassword(password);
+
+    const { userId } = await verifyAndConsumeToken(token, 'PASSWORD_RESET');
+    
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword, passwordChangedAt: new Date() }
+    });
+
+    res.status(200).json({ success: true, message: "Votre mot de passe a été réinitialisé. Vous pouvez maintenant vous connecter." });
+  } catch (error) {
+    if (error.message.includes('invalide') || error.message.includes('expiré')) {
+        return next(ErrorTypes.BadRequest(error.message));
+    }
+    next(error);
+  }
 };
 
 // ============================================

@@ -2,21 +2,35 @@ import express from 'express';
 import http from 'http';
 import cookieParser from 'cookie-parser';
 import setupSwagger from './utils/swagger.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import cors from 'cors';
 import prisma ,{ disconnectPrisma} from './lib/prisma.js';
 import AuthRouter from './routes/auth.route.js';
 import FileRouter from './routes/files.route.js'; 
 import FolderRouter from './routes/folder.route.js';
+import UserRouter from './routes/user.route.js'
+import { apiLimiter } from './middlewares/rateLimit.middleware.js';
 import { startCronJobs } from './utils/cron.js';
 
 const app = express();
 const PORT = 3000;
 const server = http.createServer(app);
 
+// Pour utiliser __dirname avec les modules ES
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Rate Limiting - Appliquer le limiteur général à toutes les requêtes
+app.use(apiLimiter);
+
 // MIDDLEWARES
 app.use(express.json());
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
+
+// Servir les fichiers statiques (avatars par défaut, etc.) depuis le dossier 'public'
+app.use('/public', express.static(path.join(__dirname, 'public')));
 
 // CORS
 app.use(cors({
@@ -36,6 +50,7 @@ app.use((req, res, next) => {
 app.use('/auth', AuthRouter);
 app.use('/folders', FolderRouter);
 app.use('/files', FileRouter); 
+app.use('/users', UserRouter);
 
 // DATABASE CONNECTION
 startCronJobs();

@@ -1,15 +1,25 @@
-// Dans routes/auth.route.js
 import express from 'express';
-// On utilise signin et signup car c'est comme ça qu'ils sont nommés dans ton controller
-import { signin, signup, signout, verifyEmail, OauthSignin, OauthSignup } from '../controllers/auth.controller.js'; 
+import { 
+  signin, 
+  signup, 
+  signout, 
+  verifyEmail, 
+  OauthSignin, 
+  OauthSignup,
+  forgotPassword,
+  resetPassword
+} from '../controllers/auth.controller.js'; 
+import { authLimiter } from '../middlewares/rateLimit.middleware.js';
 
 const router = express.Router();
 
-router.post('/register', signup); // On lie l'URL /register à la fonction signup
-router.post('/login', signin);    // On lie l'URL /login à la fonction signin
+router.post('/register', authLimiter, signup);
+router.post('/login', authLimiter, signin);
 router.post('/oauth/signin', OauthSignin);
 router.post('/oauth/signup', OauthSignup);
 router.post('/logout', signout);
 router.get('/verify-email/:token', verifyEmail);
+router.post('/forgot-password', authLimiter, forgotPassword);
+router.post('/reset-password/:token', resetPassword);
 
 export default router;

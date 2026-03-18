@@ -111,18 +111,22 @@ export const getFolderContents = async (req, res, next) => {
       })
     ]);
 
-    // Build Breadcrumbs (Ancestors)
-    const breadcrumbs = [];
-    let ancestor = currentFolder;
-    // Simple recursive lookup for breadcrumbs (can be optimized later)
-    while (ancestor) {
-      breadcrumbs.unshift({ id: ancestor.id, name: ancestor.name });
-      if (ancestor.parentId) {
-        ancestor = await prisma.folder.findUnique({ where: { id: ancestor.parentId } });
-      } else {
-        ancestor = null;
-      }
-    }
+    // Build Breadcrumbs (Ancestors) - Optimized version
+    const pathParts = currentFolder.path.split('/').filter(p => p);
+    const ancestorPaths = pathParts.map((part, index) => {
+      return '/' + pathParts.slice(0, index + 1).join('/');
+    });
+
+    const breadcrumbsData = await prisma.folder.findMany({
+      where: {
+        ownerId: userId,
+        path: { in: ancestorPaths }
+      },
+      select: { id: true, name: true, path: true },
+    });
+
+    // Sort breadcrumbs correctly based on path depth
+    const breadcrumbs = breadcrumbsData.sort((a, b) => a.path.length - b.path.length);
 
     res.status(200).json({
       success: true,
@@ -151,6 +155,10 @@ export const deleteFolder = async (req, res, next) => {
 
     if (!folder || folder.ownerId !== userId) {
       throw ErrorTypes.NotFound('Dossier introuvable');
+    }
+
+    if (!folder.path) {
+      throw ErrorTypes.InternalError('Chemin du dossier manquant, impossible de supprimer récursivement.');
     }
 
     // Suppression récursive (Soft Delete)
@@ -319,17 +327,50 @@ export const restoreFolder = async (req, res, next) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const folder = await prisma.folder.findUnique({ where: { id } });
-    if (!folder || folder.ownerId !== userId) throw ErrorTypes.NotFound("Dossier introuvable");
+    const folderToRestore = await prisma.folder.findUnique({
+      where: { id, ownerId: userId },
+      include: { parent: true } // Include parent to check its status
+    });
 
-    // Restauration récursive : on restaure le dossier et tout ce qu'il contient
-    // Note: Si le parent du dossier est toujours supprimé, ce dossier sera orphelin dans l'UI
-    // Une logique plus poussée pourrait vérifier le parent.
-    await prisma.folder.update({ where: { id }, data: { isDeleted: false } });
-    await prisma.file.updateMany({ where: { folderId: id }, data: { isDeleted: false } });
-    // On pourrait aussi restaurer les sous-dossiers récursivement via le path si nécessaire
+    if (!folderToRestore) {
+      throw ErrorTypes.NotFound("Dossier introuvable ou vous n'avez pas les permissions.");
+    }
 
-    res.status(200).json({ success: true, message: "Dossier restauré" });
+    if (!folderToRestore.isDeleted) {
+      return res.status(400).json({ success: false, message: "Le dossier n'est pas dans la corbeille." });
+    }
+
+    if (!folderToRestore.path) {
+      throw ErrorTypes.InternalError('Chemin du dossier manquant, impossible de restaurer récursivement.');
+    }
+
+    // Empêche la restauration si le dossier parent est lui-même dans la corbeille.
+    if (folderToRestore.parent && folderToRestore.parent.isDeleted) {
+      throw ErrorTypes.BadRequest("Impossible de restaurer ce dossier car son dossier parent est dans la corbeille. Veuillez d'abord restaurer le dossier parent.");
+    }
+
+    // Utilisation d'une transaction pour une restauration atomique
+    await prisma.$transaction(async (tx) => {
+      // 1. Trouver tous les sous-dossiers (y compris le dossier actuel) à restaurer
+      const foldersToRestore = await tx.folder.findMany({
+        where: {
+          ownerId: userId,
+          path: { startsWith: folderToRestore.path }
+        },
+        select: { id: true }
+      });
+
+      const folderIdsToRestore = foldersToRestore.map(f => f.id);
+
+      // 2. Restaurer tous les dossiers et fichiers identifiés
+      await tx.folder.updateMany({ where: { id: { in: folderIdsToRestore } }, data: { isDeleted: false } });
+      await tx.file.updateMany({ where: { folderId: { in: folderIdsToRestore } }, data: { isDeleted: false } });
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Dossier et son contenu restaurés avec succès."
+    });
   } catch (error) {
     next(error);
   }
@@ -345,6 +386,10 @@ export const downloadFolder = async (req, res, next) => {
 
     const rootFolder = await prisma.folder.findUnique({ where: { id } });
     if (!rootFolder || rootFolder.ownerId !== userId) throw ErrorTypes.NotFound("Dossier introuvable");
+
+    if (!rootFolder.path) {
+      throw ErrorTypes.InternalError('Chemin du dossier manquant, impossible de générer l\'archive.');
+    }
 
     // 1. Récupérer tous les fichiers et sous-dossiers récursivement
     const folders = await prisma.folder.findMany({

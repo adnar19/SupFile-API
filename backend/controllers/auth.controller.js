@@ -46,7 +46,7 @@ export const signup = async (req, res, next) => {
         fullName: fullName || null,
         emailVerified: false,
         isActive: false,
-        avatarUrl: '../utils/default-avatar-profile.avif',
+        avatarUrl: '/public/images/default-avatar-profile.avif',
       },
       select: {
         id: true,

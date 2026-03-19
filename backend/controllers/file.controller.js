@@ -43,8 +43,15 @@ export const uploadFile = async (req, res, next) => {
     // Validation du dossier parent si fourni
     if (finalFolderId) {
       const folder = await prisma.folder.findUnique({ where: { id: finalFolderId } });
-      if (!folder || folder.ownerId !== user.id) {
-        throw ErrorTypes.BadRequest("Dossier de destination invalide");
+      if (!folder) throw ErrorTypes.BadRequest("Dossier de destination invalide");
+
+      if (folder.ownerId !== user.id) {
+        const shares = await prisma.internalShare.findMany({
+          where: { sharedWithId: user.id, permission: 'WRITE' },
+          include: { folder: true }
+        });
+        const hasWriteAccess = shares.some(s => folder.path.startsWith(s.folder.path));
+        if (!hasWriteAccess) throw ErrorTypes.Forbidden("Vous n'avez pas la permission d'uploader ici.");
       }
     } else {
       // Si upload à la racine, on rattache au dossier "My Files" pour la cohérence
@@ -101,6 +108,86 @@ export const uploadFile = async (req, res, next) => {
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
+    next(error);
+  }
+};
+
+// ============================================
+// REPLACE FILE CONTENT (Upload nouvelle version)
+// ============================================
+export const replaceFile = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    if (!req.file) throw ErrorTypes.BadRequest('Aucun fichier fourni');
+
+    const file = await prisma.file.findUnique({
+      where: { id },
+      include: { folder: true }
+    });
+
+    if (!file || file.isDeleted) throw ErrorTypes.NotFound("Fichier introuvable");
+
+    // 1. Vérification des permissions (Propriétaire OU Collaborateur avec écriture)
+    let hasAccess = false;
+    if (file.ownerId === userId) {
+      hasAccess = true;
+    } else if (file.folderId) {
+      const shares = await prisma.internalShare.findMany({
+        where: { sharedWithId: userId, permission: 'WRITE' },
+        include: { folder: true }
+      });
+      // On vérifie si le fichier est dans un dossier partagé en écriture
+      hasAccess = shares.some(s => file.folder.path.startsWith(s.folder.path));
+    }
+
+    if (!hasAccess) throw ErrorTypes.Forbidden("Permission refusée : Vous ne pouvez pas modifier ce fichier.");
+
+    // 2. Gestion du Quota (Sur le quota du PROPRIÉTAIRE du fichier)
+    const newSize = BigInt(req.file.size);
+    const oldSize = BigInt(file.size);
+    const owner = await prisma.user.findUnique({ where: { id: file.ownerId } });
+    
+    const newStorageUsed = BigInt(owner.storageUsed) - oldSize + newSize;
+
+    if (newStorageUsed > BigInt(owner.storageQuota)) {
+      fs.unlinkSync(req.file.path); // Supprimer le fichier temporaire
+      throw ErrorTypes.Forbidden("Le quota de stockage du propriétaire serait dépassé.");
+    }
+
+    // 3. Remplacement physique (Suppression de l'ancien)
+    const oldPath = path.join(process.cwd(), 'uploads', file.storageName);
+    if (fs.existsSync(oldPath)) {
+      try { fs.unlinkSync(oldPath); } catch(e) { console.error("Erreur suppression ancien fichier:", e); }
+    }
+
+    // 4. Mise à jour DB (Transaction pour fichier et quota propriétaire)
+    const [updatedFile] = await prisma.$transaction([
+      prisma.file.update({
+        where: { id },
+        data: {
+          storageName: req.file.filename,
+          mimeType: req.file.mimetype,
+          size: newSize,
+          updatedAt: new Date() // Force la mise à jour de la date pour le tri "Récents"
+        }
+      }),
+      prisma.user.update({
+        where: { id: file.ownerId },
+        data: { storageUsed: newStorageUsed }
+      })
+    ]);
+
+    res.status(200).json({ 
+      success: true, 
+      message: "Nouvelle version uploadée", 
+      data: { ...updatedFile, size: updatedFile.size.toString() } 
+    });
+
+  } catch (error) {
+    // Nettoyage si erreur
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     next(error);
   }
 };

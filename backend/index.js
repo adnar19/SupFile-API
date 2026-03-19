@@ -11,6 +11,7 @@ import FileRouter from './routes/files.route.js';
 import FolderRouter from './routes/folder.route.js';
 import UserRouter from './routes/user.route.js'
 import DashboardRouter from './routes/dashboard.route.js';
+import SharingRouter from './routes/sharing.route.js';
 import { apiLimiter } from './middlewares/rateLimit.middleware.js';
 import { startCronJobs } from './utils/cron.js';
 
@@ -53,6 +54,7 @@ app.use('/folders', FolderRouter);
 app.use('/files', FileRouter); 
 app.use('/users', UserRouter);
 app.use('/dashboard', DashboardRouter);
+app.use('/share', SharingRouter);
 
 // DATABASE CONNECTION
 startCronJobs();

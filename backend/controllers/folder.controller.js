@@ -26,9 +26,20 @@ export const createFolder = async (req, res, next) => {
         where: { id: parentId }
       });
 
-      if (!parentFolder || parentFolder.ownerId !== userId) {
-        throw ErrorTypes.NotFound('Dossier parent introuvable');
+      if (!parentFolder) throw ErrorTypes.NotFound('Dossier parent introuvable');
+      
+      // Si je ne suis pas le propriétaire, je dois avoir une permission d'écriture
+      if (parentFolder.ownerId !== userId) {
+        const shares = await prisma.internalShare.findMany({
+          where: { sharedWithId: userId, permission: 'WRITE' },
+          include: { folder: true }
+        });
+        
+        // On vérifie si le dossier parent fait partie d'une arborescence partagée en écriture
+        const hasWriteAccess = shares.some(s => parentFolder.path.startsWith(s.folder.path));
+        if (!hasWriteAccess) throw ErrorTypes.Forbidden("Vous n'avez pas la permission d'écrire dans ce dossier.");
       }
+
       parentPath = parentFolder.path;
     } else {
       // If no parentId, try to find the root folder
@@ -86,8 +97,29 @@ export const getFolderContents = async (req, res, next) => {
       currentFolder = await prisma.folder.findUnique({
         where: { id }
       });
+      
       if (!currentFolder || currentFolder.ownerId !== userId) {
-        throw ErrorTypes.NotFound('Dossier introuvable');
+        // Vérification si c'est un dossier partagé (ou un sous-dossier d'un partage)
+        // 1. Vérification directe (le dossier racine partagé)
+        const directShare = await prisma.internalShare.findUnique({
+          where: { folderId_sharedWithId: { folderId: id, sharedWithId: userId } }
+        });
+
+        // 2. Vérification héritée (sous-dossier)
+        // On cherche tous les partages de l'utilisateur et on regarde si le chemin correspond
+        const allUserShares = await prisma.internalShare.findMany({
+          where: { 
+            sharedWithId: userId,
+            folder: { isDeleted: false } // SÉCURITÉ : Ignorer les partages provenant de dossiers supprimés
+          },
+          include: { folder: { select: { path: true } } }
+        });
+
+        const isChildOfShare = allUserShares.some(share => currentFolder && currentFolder.path.startsWith(share.folder.path + '/'));
+
+        if (!directShare && !isChildOfShare) {
+           throw ErrorTypes.NotFound('Dossier introuvable ou accès refusé');
+        }
       }
     }
 
@@ -96,7 +128,7 @@ export const getFolderContents = async (req, res, next) => {
       prisma.folder.findMany({
         where: { 
           parentId: currentFolder.id, 
-          ownerId: userId,
+          ownerId: currentFolder.ownerId, // CORRECTION : Utiliser l'ID du propriétaire du dossier (pour voir les fichiers partagés)
           isDeleted: false 
         },
         orderBy: { name: 'asc' }
@@ -104,7 +136,7 @@ export const getFolderContents = async (req, res, next) => {
       prisma.file.findMany({
         where: { 
           folderId: currentFolder.id, 
-          ownerId: userId,
+          ownerId: currentFolder.ownerId, // CORRECTION : Idem pour les fichiers
           isDeleted: false 
         },
         orderBy: { createdAt: 'desc' }

@@ -1,7 +1,7 @@
 import express from 'express';
 import { upload } from '../middlewares/upload.middleware.js';
 import { protect } from '../middlewares/auth.middleware.js';
-import { uploadFile, getUserFiles, downloadFile, renameFile, moveFile, deleteFile, restoreFile, getTrash } from '../controllers/file.controller.js';
+import { uploadFile, getUserFiles, downloadFile, renameFile, moveFile, deleteFile, restoreFile, getTrash, replaceFile } from '../controllers/file.controller.js';
 
 const router = express.Router();
 
@@ -13,6 +13,7 @@ router.get('/download/:id', protect, downloadFile);
 router.put('/:id/rename', protect, renameFile);
 router.put('/:id/move', protect, moveFile);
 router.put('/:id/restore', protect, restoreFile); // Route pour restaurer
+router.put('/:id/content', protect, upload.single('file'), replaceFile); // Route pour nouvelle version
 router.delete('/:id', protect, deleteFile);
 
 export default router;

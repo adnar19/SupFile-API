@@ -418,3 +418,77 @@ export const getTrash = async (req, res, next) => {
     next(error);
   }
 };
+
+// ============================================
+// PERMANENT DELETE (Suppression physique)
+// ============================================
+export const deletePermanently = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const file = await prisma.file.findFirst({
+      where: { id, ownerId: userId, isDeleted: true }
+    });
+
+    if (!file) throw ErrorTypes.NotFound("Fichier introuvable dans la corbeille");
+
+    const filePath = path.join(process.cwd(), 'uploads', file.storageName);
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Supprimer de la base de données
+      await tx.file.delete({ where: { id } });
+
+      // 2. Mettre à jour le quota de l'utilisateur
+      await tx.user.update({
+        where: { id: userId },
+        data: { storageUsed: { decrement: file.size } }
+      });
+    });
+
+    // 3. Supprimer le fichier physique
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+    res.status(200).json({ success: true, message: "Fichier supprimé définitivement" });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================
+// EMPTY TRASH (Vider la corbeille)
+// ============================================
+export const emptyTrash = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    const filesToDelete = await prisma.file.findMany({
+      where: { ownerId: userId, isDeleted: true }
+    });
+
+    if (filesToDelete.length === 0) {
+      return res.status(200).json({ success: true, message: "La corbeille est déjà vide" });
+    }
+
+    const totalSize = filesToDelete.reduce((acc, file) => acc + file.size, BigInt(0));
+
+    await prisma.$transaction([
+      prisma.file.deleteMany({ where: { ownerId: userId, isDeleted: true } }),
+      prisma.folder.deleteMany({ where: { ownerId: userId, isDeleted: true } }),
+      prisma.user.update({
+        where: { id: userId },
+        data: { storageUsed: { decrement: totalSize } }
+      })
+    ]);
+
+    // Nettoyage physique
+    filesToDelete.forEach(file => {
+      const filePath = path.join(process.cwd(), 'uploads', file.storageName);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    });
+
+    res.status(200).json({ success: true, message: "Corbeille vidée avec succès" });
+  } catch (error) {
+    next(error);
+  }
+};

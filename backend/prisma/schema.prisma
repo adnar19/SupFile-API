@@ -33,6 +33,7 @@ model User {
   sharesCreated     InternalShare[] @relation("SharedBy")
   sharesReceived    InternalShare[] @relation("SharedWith")
   verificationTokens VerificationToken[]
+  favorites         Favorite[]
 
   @@map("users")
   @@index([email])
@@ -51,6 +52,7 @@ model Folder {
   files       File[]
   publicShares     PublicShare[]
   internalShares   InternalShare[]
+  favorites        Favorite[]
 
   isDeleted   Boolean  @default(false) @map("is_deleted")
   deletedAt   DateTime? @map("deleted_at")
@@ -79,6 +81,7 @@ model File {
   folder      Folder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
   isDeleted   Boolean  @default(false) @map("is_deleted")
   publicShares PublicShare[]
+  favorites    Favorite[]
   deletedAt   DateTime? @map("deleted_at")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
@@ -145,6 +148,21 @@ model InternalShare {
 
   @@unique([folderId, sharedWithId]) // Un dossier ne peut être partagé qu'une fois avec la même personne
   @@map("internal_shares")
+}
+
+model Favorite {
+  id        String   @id @default(uuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String   @map("user_id")
+  file      File?    @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  fileId    String?  @map("file_id")
+  folder    Folder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  folderId  String?  @map("folder_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, fileId])
+  @@unique([userId, folderId])
+  @@map("favorites")
 }
 
 enum theme {

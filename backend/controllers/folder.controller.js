@@ -131,6 +131,9 @@ export const getFolderContents = async (req, res, next) => {
           ownerId: currentFolder.ownerId, // CORRECTION : Utiliser l'ID du propriétaire du dossier (pour voir les fichiers partagés)
           isDeleted: false 
         },
+        include: {
+          favorites: { where: { userId } }
+        },
         orderBy: { name: 'asc' }
       }),
       prisma.file.findMany({
@@ -138,6 +141,9 @@ export const getFolderContents = async (req, res, next) => {
           folderId: currentFolder.id, 
           ownerId: currentFolder.ownerId, // CORRECTION : Idem pour les fichiers
           isDeleted: false 
+        },
+        include: {
+          favorites: { where: { userId } }
         },
         orderBy: { createdAt: 'desc' }
       })
@@ -165,8 +171,14 @@ export const getFolderContents = async (req, res, next) => {
       data: {
         currentFolder,
         breadcrumbs,
-        folders,
-        files: files.map(f => ({ ...f, size: f.size.toString() }))
+        folders: folders.map(f => {
+          const { favorites, ...folderData } = f;
+          return { ...folderData, isFavorited: favorites.length > 0 };
+        }),
+        files: files.map(f => {
+          const { favorites, ...fileData } = f;
+          return { ...fileData, size: f.size.toString(), isFavorited: favorites.length > 0 };
+        })
       }
     });
 

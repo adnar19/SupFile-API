@@ -1,4 +1,15 @@
 services:
+  frontend:
+    build: ../frontend # Ajustez le chemin vers votre dossier client web
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:3000
+    depends_on:
+      - api
+    networks:
+      - supfile-network
+
   api:
     build: .
     ports:

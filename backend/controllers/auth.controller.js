@@ -129,51 +129,95 @@ export const signin = async (req, res, next) => {
 // ============================================
 // OAuth Signin
 // ============================================
-export const OauthSignin = async (req, res, next) => {
+export const OauthSignup = async (req, res, next) => {
   try {
-      const { idToken } = req.body;
-      if (!idToken) throw ErrorTypes.BadRequest("ID Token requis");
+    const { idToken } = req.body;
+    if (!idToken) throw ErrorTypes.BadRequest("ID Token requis");
 
-      // Vérification du token ID avec Firebase Admin
-      // Cela garantit que l'email provient bien de Google/Provider et n'est pas usurpé
-      const decodedToken = await admin.auth().verifyIdToken(idToken);
-      const { email, firebase } = decodedToken;
-      const provider = firebase.sign_in_provider;
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const { email, name, picture, uid, firebase } = decodedToken;
+    const provider = firebase.sign_in_provider;
 
-      if (!email) throw ErrorTypes.BadRequest("Email invalide dans le token");
+    if (!email) throw ErrorTypes.BadRequest("Email invalide dans le token");
 
-      const user = await prisma.user.findUnique({
-        where: { email: email.toLowerCase() }
-      });
-      if (!user) {
-        throw ErrorTypes.NotFound('Utilisateur non trouvé');
-      }
+    let user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
 
-      // Update user info if logging in via OAuth (Link account / Verify email)
-      if (!user.emailVerified || !user.oauthId) {
-        await prisma.user.update({
-          where: { id: user.id },
-          data: {
-            emailVerified: true,
-            oauthProvider: user.oauthProvider || decodedToken.firebase.sign_in_provider,
-            oauthId: user.oauthId || decodedToken.uid,
-            avatarUrl: user.avatarUrl || decodedToken.picture || null
-          }
-        });
-      }
-
-      const token = jwt.sign({ id: user.id, email: user.email, fullName: user.fullName }, process.env.JWT_SECRET, { expiresIn: '24h' });
-      
-      res.cookie('access_token', token, {
+    // Utilisateur existe → connexion directe
+    if (user) {
+      const token = jwt.sign(
+        { id: user.id, email: user.email, fullName: user.fullName },
+        process.env.JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+      return res.cookie('access_token', token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'strict',
         maxAge: 24 * 60 * 60 * 1000
       }).status(200).json({
         success: true,
-      message: `Connecté via ${formatProviderName(provider)}`,
+        message: `Connecté via ${formatProviderName(provider)}`,
         data: { token }
       });
+    }
+
+    // Nouvel utilisateur → création
+    const generatedPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
+    const hashedPassword = await bcrypt.hash(generatedPassword, 12);
+
+    user = await prisma.user.create({
+      data: {
+        email: email.toLowerCase(),
+        password: hashedPassword,
+        fullName: name || null,
+        emailVerified: true,
+        isActive: true,
+        avatarUrl: picture || null,
+        oauthProvider: provider,
+        oauthId: uid,
+      },
+      select: {
+        id: true, email: true, fullName: true,
+        theme: true, emailVerified: true,
+        isActive: true, storageUsed: true,
+        storageQuota: true, createdAt: true,
+      }
+    });
+
+    await prisma.folder.create({
+      data: {
+        name: 'My Files',
+        ownerId: user.id,
+        path: '/My Files'
+      }
+    });
+
+    const token = jwt.sign(
+      { id: user.id, email: user.email, fullName: user.fullName },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    return res.cookie('access_token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 24 * 60 * 60 * 1000
+    }).status(201).json({
+      success: true,
+      message: `Compte créé via ${formatProviderName(provider)}`,
+      data: {
+        token,
+        user: {
+          ...user,
+          storageUsed: user.storageUsed.toString(),
+          storageQuota: user.storageQuota.toString(),
+        }
+      }
+    });
+
   } catch (error) {
     next(error);
   }

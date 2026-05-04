@@ -1,10 +1,10 @@
 import express from 'express';
 import { 
-  signup, 
+  signup,
+  signin, 
   signout, 
   verifyEmail,  
   OauthSignup,
-  // OauthSignin, // Commenté pour éviter le crash si non défini
   forgotPassword,
   resetPassword
 } from '../controllers/auth.controller.js'; 
@@ -42,8 +42,7 @@ router.post('/register', authLimiter, signup);
  *   post:
  *     summary: Connexion utilisateur
  */
-// Ton camarade a fusionné signin dans signup, donc on pointe vers signup
-router.post('/login', authLimiter, signup); 
+router.post('/login', authLimiter, signin); 
 
 /**
  * @swagger

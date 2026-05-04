@@ -130,7 +130,7 @@ export const OauthSignin = async (req, res, next) => {
 
     if (!email) throw ErrorTypes.BadRequest("Email invalide dans le token");
 
-    const existingUser = await prisma.user.findUnique({
+    let user = await prisma.user.findUnique({
       where: { email: email.toLowerCase() }
     });
 
@@ -149,11 +149,30 @@ export const OauthSignin = async (req, res, next) => {
           avatarUrl: picture || null,
           oauthProvider: provider,
           oauthId: uid,
+        },
+        select: {
+          id: true, email: true, fullName: true, theme: true,
+          emailVerified: true, isActive: true, storageUsed: true,
+          storageQuota: true, avatarUrl: true, createdAt: true,
         }
       });
 
       await prisma.folder.create({
-        data: { name: 'My Files', ownerId: user.id, path: '/My Files' }
+        data: { 
+          name: 'My Files', 
+          ownerId: user.id, 
+          path: '/My Files' 
+        }
+      });
+    } else {
+      // Récupérer les champs sûrs pour l'utilisateur existant
+      user = await prisma.user.findUnique({
+        where: { email: email.toLowerCase() },
+        select: {
+          id: true, email: true, fullName: true, theme: true,
+          emailVerified: true, isActive: true, storageUsed: true,
+          storageQuota: true, avatarUrl: true, createdAt: true,
+        }
       });
     }
 
@@ -171,8 +190,17 @@ export const OauthSignin = async (req, res, next) => {
       maxAge: 24 * 60 * 60 * 1000
     }).status(200).json({
       success: true,
+      statusCode: 200,
       message: `Connecté via ${formatProviderName(provider)}`,
-      data: { token, user }
+      data: {
+        token,
+        user: {
+          ...user,
+          storageUsed: user.storageUsed.toString(),
+          storageQuota: user.storageQuota.toString(),
+        }
+      },
+      accessToken: token
     });
 
   } catch (error) {

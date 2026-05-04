@@ -1,5 +1,5 @@
 /node_modules
-/.env
+.env
 /generated/prisma
 # Prisma
 prisma/migrations/*
@@ -9,3 +9,4 @@ prisma/migrations/*
 /.uploads
 firebase.js
 /.vscode
+node_modules

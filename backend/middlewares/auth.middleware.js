@@ -1,48 +1,53 @@
 import jwt from 'jsonwebtoken';
-import prisma from '../lib/prisma.js'; // Chemin à vérifier selon ton dossier
+import prisma from '../lib/prisma.js';
+
 export const protect = async (req, res, next) => {
   try {
     let token;
 
+    // 1. On récupère le token de session (Cookie pour toi, Bearer pour Adnane)
     if (req.cookies && req.cookies.access_token) {
       token = req.cookies.access_token;
     } else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
       token = req.headers.authorization.split(' ')[1];
     }
 
+    // Si pas de token, la session est considérée comme inexistante
     if (!token) {
-       // Si tu as enlevé l'import de ErrorTypes, utilise une réponse classique :
-       return res.status(401).json({ message: "Vous n'êtes pas connecté" });
+       return res.status(401).json({ message: "Session inexistante, veuillez vous connecter" });
     }
 
+    // 2. On vérifie si le token est valide et non expiré
+    // C'est ici que ton JWT_SECRET assure que le token vient bien de ton serveur
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
-    // Ajoute ce log pour voir exactement ce qu'il y a dans ton token dans ton terminal
-    console.log("Token décodé :", decoded);
-
+    // 3. On récupère l'utilisateur en base pour confirmer qu'il existe toujours
     const currentUser = await prisma.user.findUnique({
-      // On teste les deux : si userId est vide, il prendra id
       where: { id: decoded.userId || decoded.id }, 
       select: {
         id: true,
         email: true,
         isActive: true,
-        emailVerified: true
+        // On ne prend que le nécessaire pour la session
       }
     });
 
     if (!currentUser) {
-      return res.status(401).json({ message: "L'utilisateur n'existe plus" });
+      return res.status(401).json({ message: "Utilisateur inconnu" });
     }
 
+    // 4. On vérifie si le compte n'est pas bloqué
     if (!currentUser.isActive) {
-      return res.status(403).json({ message: "Votre compte a été désactivé" });
+      return res.status(403).json({ message: "Compte désactivé" });
     }
 
+    // On attache l'utilisateur à la requête pour que la route /check puisse y accéder
     req.user = currentUser;
     next();
+
   } catch (error) {
-    console.error("Erreur Auth Middleware:", error);
-    return res.status(401).json({ message: "Session invalide ou expirée" });
+    // Si jwt.verify échoue (token modifié ou expiré), on tombe ici
+    console.error("Session invalide :", error.message);
+    return res.status(401).json({ message: "Session expirée ou invalide" });
   }
 };

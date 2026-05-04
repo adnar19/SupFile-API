@@ -126,12 +126,14 @@ export const signin = async (req, res, next) => {
   }
 };
 
+
 // ============================================
-// OAuth Signin
+// OAuth SIGNUP
 // ============================================
 export const OauthSignup = async (req, res, next) => {
   try {
     const { idToken } = req.body;
+
     if (!idToken) throw ErrorTypes.BadRequest("ID Token requis");
 
     const decodedToken = await admin.auth().verifyIdToken(idToken);
@@ -140,14 +142,14 @@ export const OauthSignup = async (req, res, next) => {
 
     if (!email) throw ErrorTypes.BadRequest("Email invalide dans le token");
 
-    let user = await prisma.user.findUnique({
+    const existingUser = await prisma.user.findUnique({
       where: { email: email.toLowerCase() }
     });
 
-    // Utilisateur existe → connexion directe
-    if (user) {
+    // Utilisateur existe déjà → connexion directe
+    if (existingUser) {
       const token = jwt.sign(
-        { id: user.id, email: user.email, fullName: user.fullName },
+        { id: existingUser.id, email: existingUser.email, fullName: existingUser.fullName },
         process.env.JWT_SECRET,
         { expiresIn: '24h' }
       );
@@ -167,7 +169,7 @@ export const OauthSignup = async (req, res, next) => {
     const generatedPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
     const hashedPassword = await bcrypt.hash(generatedPassword, 12);
 
-    user = await prisma.user.create({
+    const user = await prisma.user.create({
       data: {
         email: email.toLowerCase(),
         password: hashedPassword,
@@ -179,10 +181,16 @@ export const OauthSignup = async (req, res, next) => {
         oauthId: uid,
       },
       select: {
-        id: true, email: true, fullName: true,
-        theme: true, emailVerified: true,
-        isActive: true, storageUsed: true,
-        storageQuota: true, createdAt: true,
+        id: true,
+        email: true,
+        fullName: true,
+        theme: true,
+        emailVerified: true,
+        oauthProvider: true,
+        isActive: true,
+        storageUsed: true,
+        storageQuota: true,
+        createdAt: true,
       }
     });
 
@@ -218,91 +226,6 @@ export const OauthSignup = async (req, res, next) => {
       }
     });
 
-  } catch (error) {
-    next(error);
-  }
-};
-
-// ============================================
-// OAuth SIGNUP
-// ============================================
-export const OauthSignup = async (req, res, next) => {
-  try {
-    const { idToken } = req.body;
-
-    if (!idToken) throw ErrorTypes.BadRequest("ID Token requis");
-
-    // SECURITY: Verify token to get the real email
-    const decodedToken = await admin.auth().verifyIdToken(idToken);
-    const { email, name, picture, uid, firebase } = decodedToken;
-    const provider = firebase.sign_in_provider;
-
-    if (!email) throw ErrorTypes.BadRequest("Email invalide dans le token");
-
-    const existingUser = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
-    });
-
-    if (existingUser) {
-      throw ErrorTypes.Conflict('Cet email est déjà utilisé. Veuillez vous connecter.');
-    }
-   // Génération d'un mot de passe aléatoire pour les utilisateurs OAuth 
-    const generatedPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
-    // Hashage du mot de passe généré une bonne pratique de le stocker de manière sécurisée
-    const hashedPassword = await bcrypt.hash(generatedPassword, 12);
-
-    const user = await prisma.user.create({
-      data: {
-        email: email.toLowerCase(),
-        password: hashedPassword,
-        fullName: name, // Use name from verified token
-        emailVerified: true, // OAuth users are verified by the provider
-        isActive: true,
-        avatarUrl: picture || null, // Correct field name and use picture from token
-        oauthProvider: provider,
-        oauthId: uid,
-      },
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        theme: true,
-        emailVerified: true,
-        oauthProvider: true,
-        isActive: true,
-        storageUsed: true,
-        storageQuota: true,
-        createdAt: true,
-      }
-    });
-
-    await prisma.folder.create({
-      data: {
-        name: 'My Files',
-        ownerId: user.id,
-        path: '/My Files'
-      }
-    });
-
-    const token = jwt.sign({ id: user.id, email: user.email, fullName: user.fullName }, process.env.JWT_SECRET, { expiresIn: '24h' });
-
-    res.cookie('access_token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 24 * 60 * 60 * 1000
-    }).status(201).json({
-      success: true,
-      message: `Compte créé via ${formatProviderName(provider)}`,
-      data: {
-        token,
-        user: {
-          ...user,
-          storageUsed: user.storageUsed.toString(),
-          storageQuota: user.storageQuota.toString(),
-        }
-      }
-    });
   } catch (error) {
     next(error);
   }

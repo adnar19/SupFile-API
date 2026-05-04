@@ -3,8 +3,7 @@ import {
   signin, 
   signup, 
   signout, 
-  verifyEmail, 
-  OauthSignin, 
+  verifyEmail,  
   OauthSignup,
   forgotPassword,
   resetPassword
@@ -83,26 +82,6 @@ router.post('/register', authLimiter, signup);
  *         description: Connexion réussie (Cookie JWT défini)
  */
 router.post('/login', authLimiter, signin);
-
-/**
- * @swagger
- * /auth/oauth/signin:
- *   post:
- *     summary: Connexion via Google OAuth
- *     tags: [Auth]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [idToken]
- *             properties:
- *               idToken:
- *                 type: string
- *                 description: Token retourné par Firebase/Google
- */
-router.post('/oauth/signin', OauthSignin);
 
 /**
  * @swagger

@@ -21,9 +21,10 @@ const router = express.Router();
  *     tags: [Auth]
  */
 router.get('/check', protect, (req, res) => {
+  // On renvoie un simple succès booléen si le middleware 'protect' a validé le token
   res.status(200).json({
     success: true,
-    user: req.user
+    isAuthenticated: true // Le check est maintenant un booléen clair
   });
 });
 

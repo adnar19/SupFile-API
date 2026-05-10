@@ -36,7 +36,7 @@ export const uploadFile = async (req, res, next) => {
       throw ErrorTypes.BadRequest('Aucun fichier fourni');
     }
 
-    const fileSize = BigInt(req.file.size);
+    const fileSize = BigInt(req.file?.size || 0);
     const user = req.user;
     let finalFolderId = req.body.folderId || null;
 
@@ -65,8 +65,8 @@ export const uploadFile = async (req, res, next) => {
     const uniqueName = await getUniqueFileName(req.file.originalname, finalFolderId, user.id);
 
     // 1. Vérification du Quota
-    const currentUsage = BigInt(user.storageUsed);
-    const quota = BigInt(user.storageQuota);
+    const currentUsage = BigInt(user.storageUsed || 0);
+    const quota = BigInt(user.storageQuota || 0);
 
     if (currentUsage + fileSize > quota) {
       // Supprimer le fichier physique si le quota est dépassé

@@ -5,6 +5,28 @@ import path from 'path';
 import fs from 'fs';
 // npm install archiver
 
+// Helper pour gérer les conflits de noms (ex: "Folder" -> "Folder (1)")
+const getUniqueFolderName = async (folderName, parentId, ownerId) => {
+  let name = folderName;
+  let counter = 1;
+
+  while (true) {
+    const existingFolder = await prisma.folder.findFirst({
+      where: {
+        name: name,
+        parentId: parentId,
+        ownerId: ownerId,
+        isDeleted: false
+      }
+    });
+
+    if (!existingFolder) return name;
+
+    name = `${folderName} (${counter})`;
+    counter++;
+  }
+};
+
 // ============================================
 // CREATE FOLDER
 // ============================================
@@ -52,10 +74,13 @@ export const createFolder = async (req, res, next) => {
       }
     }
 
+    // Gestion des conflits de nom
+    const uniqueName = await getUniqueFolderName(name, finalParentId, userId);
+
     const folder = await prisma.folder.create({
       data: {
-        name,
-        path: `${parentPath}/${name}`,
+        name: uniqueName,
+        path: `${parentPath}/${uniqueName}`,
         parentId: finalParentId,
         ownerId: userId
       }

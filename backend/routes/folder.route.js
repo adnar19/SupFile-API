@@ -1,6 +1,6 @@
 import express from 'express';
 import { protect } from '../middlewares/auth.middleware.js';
-import { createFolder, getFolderContents, deleteFolder } from '../controllers/folder.controller.js';
+import { createFolder, getFolderContents, deleteFolder, renameFolder } from '../controllers/folder.controller.js';
 
 const router = express.Router();
 
@@ -191,5 +191,32 @@ router.get('/:id', getFolderContents);
  *           format: uuid
  */
 router.delete('/:id', deleteFolder);
+
+/**
+ * @swagger
+ * /folders/{id}/rename:
+ *   put:
+ *     summary: Renommer un dossier
+ *     tags: [Folders]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               name:
+ *                 type: string
+ */
+router.put('/:id/rename', renameFolder);
 
 export default router;

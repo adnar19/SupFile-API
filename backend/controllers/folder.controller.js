@@ -191,19 +191,44 @@ export const getFolderContents = async (req, res, next) => {
     // Sort breadcrumbs correctly based on path depth
     const breadcrumbs = breadcrumbsData.sort((a, b) => a.path.length - b.path.length);
 
+    // Pagination logic
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const formattedFolders = folders.map(f => {
+      const { favorites, ...folderData } = f;
+      return { ...folderData, type: 'folder', isFavorited: favorites.length > 0 };
+    });
+
+    const formattedFiles = files.map(f => {
+      const { favorites, ...fileData } = f;
+      return { ...fileData, type: 'file', size: f.size.toString(), isFavorited: favorites.length > 0 };
+    });
+
+    // Combine them (folders first, then files)
+    const combined = [...formattedFolders, ...formattedFiles];
+
+    const totalItems = combined.length;
+    const totalPages = Math.ceil(totalItems / limit);
+    const paginatedItems = combined.slice(skip, skip + limit);
+
+    const paginatedFolders = paginatedItems.filter(item => item.type === 'folder');
+    const paginatedFiles = paginatedItems.filter(item => item.type === 'file');
+
     res.status(200).json({
       success: true,
       data: {
         currentFolder,
         breadcrumbs,
-        folders: folders.map(f => {
-          const { favorites, ...folderData } = f;
-          return { ...folderData, isFavorited: favorites.length > 0 };
-        }),
-        files: files.map(f => {
-          const { favorites, ...fileData } = f;
-          return { ...fileData, size: f.size.toString(), isFavorited: favorites.length > 0 };
-        })
+        folders: paginatedFolders,
+        files: paginatedFiles
+      },
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalItems,
+        limit
       }
     });
 

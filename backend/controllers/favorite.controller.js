@@ -53,6 +53,10 @@ export const toggleFavorite = async (req, res, next) => {
 export const getFavorites = async (req, res, next) => {
   try {
     const userId = req.user.id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
     const favorites = await prisma.favorite.findMany({
       where: { userId },
       include: {
@@ -62,12 +66,39 @@ export const getFavorites = async (req, res, next) => {
       orderBy: { createdAt: 'desc' }
     });
 
+    const allFolders = [];
+    const allFiles = [];
+
+    for (const fav of favorites) {
+      if (fav.folder && !fav.folder.isDeleted) {
+        allFolders.push({ ...fav.folder, type: 'folder', favoriteCreatedAt: fav.createdAt });
+      } else if (fav.file && !fav.file.isDeleted) {
+        allFiles.push({ ...fav.file, type: 'file', size: fav.file.size.toString(), favoriteCreatedAt: fav.createdAt });
+      }
+    }
+
+    const combined = [...allFolders, ...allFiles];
+    combined.sort((a, b) => new Date(b.favoriteCreatedAt) - new Date(a.favoriteCreatedAt));
+
+    const totalItems = combined.length;
+    const totalPages = Math.ceil(totalItems / limit);
+    const paginatedItems = combined.slice(skip, skip + limit);
+
+    const paginatedFolders = paginatedItems.filter(item => item.type === 'folder');
+    const paginatedFiles = paginatedItems.filter(item => item.type === 'file');
+
     res.status(200).json({
       success: true,
-      data: favorites.map(fav => ({
-        ...fav,
-        file: fav.file ? { ...fav.file, size: fav.file.size.toString() } : null
-      }))
+      data: {
+        folders: paginatedFolders,
+        files: paginatedFiles
+      },
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalItems,
+        limit
+      }
     });
   } catch (error) {
     next(error);

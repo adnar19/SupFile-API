@@ -1,6 +1,6 @@
 import express from 'express';
 import { protect } from '../middlewares/auth.middleware.js';
-import { createFolder, getFolderContents, deleteFolder, renameFolder, moveFolder, restoreFolder } from '../controllers/folder.controller.js';
+import { createFolder, getFolderContents, deleteFolder, renameFolder, moveFolder, restoreFolder, deleteFolderPermanently } from '../controllers/folder.controller.js';
 
 const router = express.Router();
 
@@ -220,5 +220,6 @@ router.delete('/:id', deleteFolder);
 router.put('/:id/rename', renameFolder);
 router.put('/:id/move', moveFolder);
 router.put('/:id/restore', restoreFolder);
+router.delete('/:id/permanent', deleteFolderPermanently);
 
 export default router;

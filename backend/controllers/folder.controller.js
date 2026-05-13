@@ -543,3 +543,103 @@ export const downloadFolder = async (req, res, next) => {
     next(error);
   }
 };
+
+// ============================================
+// PERMANENT DELETE FOLDER (Suppression physique)
+// ============================================
+export const deleteFolderPermanently = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const folder = await prisma.folder.findFirst({
+      where: { id, ownerId: userId, isDeleted: true }
+    });
+
+    if (!folder) throw ErrorTypes.NotFound("Dossier introuvable dans la corbeille");
+
+    // 1. Trouver tous les descendants (y compris lui-même)
+    const folders = await prisma.folder.findMany({
+      where: {
+        path: { startsWith: folder.path },
+        ownerId: userId
+      }
+    });
+
+    const folderIds = folders.map(f => f.id);
+
+    // 2. Trouver tous les fichiers dans ces dossiers
+    const files = await prisma.file.findMany({
+      where: {
+        folderId: { in: folderIds },
+        ownerId: userId
+      }
+    });
+
+    // 3. Calculer la taille totale à déduire
+    const totalSize = files.reduce((acc, file) => acc + BigInt(file.size), BigInt(0));
+
+    await prisma.$transaction(async (tx) => {
+      // Supprimer les favoris liés aux fichiers et dossiers
+      await tx.favorite.deleteMany({
+        where: {
+          OR: [
+            { fileId: { in: files.map(f => f.id) } },
+            { folderId: { in: folderIds } }
+          ]
+        }
+      });
+
+      // Supprimer les partages publics liés aux fichiers et dossiers
+      await tx.publicShare.deleteMany({
+        where: {
+          OR: [
+            { fileId: { in: files.map(f => f.id) } },
+            { folderId: { in: folderIds } }
+          ]
+        }
+      });
+
+      // Supprimer les partages internes liés aux dossiers
+      await tx.internalShare.deleteMany({
+        where: {
+          folderId: { in: folderIds }
+        }
+      });
+
+      // Supprimer les fichiers de la DB
+      await tx.file.deleteMany({
+        where: { id: { in: files.map(f => f.id) } }
+      });
+
+      // Supprimer les dossiers de la DB (doit être fait après les fichiers à cause des FK)
+      // Note: On supprime d'abord les enfants si possible, ou on compte sur Prisma si cascade, 
+      // mais ici on a collecté tous les IDs donc deleteMany(in folderIds) fonctionne.
+      await tx.folder.deleteMany({
+        where: { id: { in: folderIds } }
+      });
+
+      // Mettre à jour le quota de l'utilisateur
+      await tx.user.update({
+        where: { id: userId },
+        data: { storageUsed: { decrement: totalSize } }
+      });
+    });
+
+    // 4. Supprimer physiquement les fichiers
+    files.forEach(file => {
+      const filePath = path.join(process.cwd(), 'uploads', file.storageName);
+      if (fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch (err) {
+          console.error(`Erreur suppression fichier ${file.storageName}:`, err);
+        }
+      }
+    });
+
+    res.status(200).json({ success: true, message: "Dossier et son contenu supprimés définitivement" });
+  } catch (error) {
+    next(error);
+  }
+};

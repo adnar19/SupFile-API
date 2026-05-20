@@ -11,6 +11,9 @@ const router = express.Router();
  *   description: Statistiques et Recherche globale
  */
 
+// Appliquer le middleware 'protect' à toutes les routes du dashboard
+router.use(protect);
+
 /**
  * @swagger
  * /dashboard:
@@ -18,8 +21,6 @@ const router = express.Router();
  *     summary: Récupérer les statistiques du stockage
  *     description: Retourne l'espace utilisé, le quota et la distribution par type.
  *     tags: [Dashboard]
- *     security:
- *       - cookieAuth: []
  */
 router.get('/', getDashboardStats);
 
@@ -29,8 +30,6 @@ router.get('/', getDashboardStats);
  *   get:
  *     summary: Recherche globale (Fichiers et Dossiers)
  *     tags: [Dashboard]
- *     security:
- *       - cookieAuth: []
  *     parameters:
  *       - in: query
  *         name: q

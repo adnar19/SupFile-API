@@ -96,7 +96,61 @@ router.post('/public/create', protect, createPublicLink);
  * /share/public/my-links:
  *   get:
  *     summary: Lister mes liens publics actifs
+ *     description: Récupère la liste de tous les liens de partage publics créés par l'utilisateur connecté.
  *     tags: [Sharing]
+ *     security:
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Liste des liens publics récupérée avec succès.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         format: uuid
+ *                         description: ID interne du lien de partage.
+ *                       token:
+ *                         type: string
+ *                         description: Jeton unique utilisé pour accéder au lien public.
+ *                       link:
+ *                         type: string
+ *                         format: url
+ *                         description: URL complète du lien de partage public.
+ *                       type:
+ *                         type: string
+ *                         enum: [file, folder]
+ *                         description: Type de l'élément partagé (fichier ou dossier).
+ *                       item:
+ *                         type: object
+ *                         description: Détails de l'élément partagé (fichier ou dossier).
+ *                       isPasswordProtected:
+ *                         type: boolean
+ *                         description: Indique si le lien est protégé par un mot de passe.
+ *                       expiresAt:
+ *                         type: string
+ *                         format: date-time
+ *                         nullable: true
+ *                         description: Date et heure d'expiration du lien, si défini.
+ *                       views:
+ *                         type: integer
+ *                         description: Nombre de fois où le lien a été consulté.
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *                         description: Date et heure de création du lien.
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
  */
 router.get('/public/my-links', protect, getMyPublicLinks);          // Liste de mes liens
 
@@ -137,8 +191,129 @@ router.delete('/public/:token', protect, deletePublicLink);          // Révoque
  *                 enum: [READ, WRITE]
  */
 router.post('/internal', protect, shareFolderInternal);              // Partager (+ permission)
+
+/**
+ * @swagger
+ * /share/internal:
+ *   delete:
+ *     summary: Révoquer un partage interne
+ *     tags: [Sharing]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [folderId, email]
+ *             properties:
+ *               folderId:
+ *                 type: string
+ *                 format: uuid
+ *               email:
+ *                 type: string
+ */
 router.delete('/internal', protect, removeInternalShare);            // Révoquer un partage
+
+/**
+ * @swagger
+ * /share/internal/list:
+ *   get:
+ *     summary: Lister les dossiers partagés avec moi
+ *     description: Récupère tous les dossiers auxquels l'utilisateur connecté a accès via un partage interne.
+ *     tags: [Sharing]
+ *     security:
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Liste des dossiers partagés récupérée avec succès
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         format: uuid
+ *                       name:
+ *                         type: string
+ *                       sharedBy:
+ *                         type: object
+ *                         properties:
+ *                           fullName:
+ *                             type: string
+ *                           email:
+ *                             type: string
+ *                       sharedAt:
+ *                         type: string
+ *                         format: date-time
+ *                       permission:
+ *                         type: string
+ *                         enum: [READ, WRITE]
+ */
 router.get('/internal/list', protect, getSharedWithMe);              // "Partagés avec moi"
+
+/**
+ * @swagger
+ * /share/internal/{folderId}/shares:
+ *   get:
+ *     summary: Lister les collaborateurs d'un dossier
+ *     description: Récupère la liste des utilisateurs avec qui un dossier spécifique est partagé, ainsi que leurs permissions.
+ *     tags: [Sharing]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: folderId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: ID du dossier dont on veut lister les partages.
+ *     responses:
+ *       200:
+ *         description: Liste des partages récupérée avec succès
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       shareId:
+ *                         type: string
+ *                         format: uuid
+ *                       user:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             format: uuid
+ *                           email:
+ *                             type: string
+ *                           fullName:
+ *                             type: string
+ *                           avatarUrl:
+ *                             type: string
+ *                             nullable: true
+ *                       permission:
+ *                         type: string
+ *                         enum: [READ, WRITE]
+ *                       sharedAt:
+ *                         type: string
+ *                         format: date-time
+ */
 router.get('/internal/:folderId/shares', protect, getFolderShares);  // Collaborateurs d'un dossier
 
 export default router;

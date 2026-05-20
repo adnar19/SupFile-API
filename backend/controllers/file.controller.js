@@ -36,7 +36,7 @@ export const uploadFile = async (req, res, next) => {
       throw ErrorTypes.BadRequest('Aucun fichier fourni');
     }
 
-    const fileSize = BigInt(req.file.size);
+    const fileSize = BigInt(req.file?.size || 0);
     const user = req.user;
     let finalFolderId = req.body.folderId || null;
 
@@ -65,8 +65,8 @@ export const uploadFile = async (req, res, next) => {
     const uniqueName = await getUniqueFileName(req.file.originalname, finalFolderId, user.id);
 
     // 1. Vérification du Quota
-    const currentUsage = BigInt(user.storageUsed);
-    const quota = BigInt(user.storageQuota);
+    const currentUsage = BigInt(user.storageUsed || 0);
+    const quota = BigInt(user.storageQuota || 0);
 
     if (currentUsage + fileSize > quota) {
       // Supprimer le fichier physique si le quota est dépassé
@@ -197,20 +197,34 @@ export const replaceFile = async (req, res, next) => {
 // ============================================
 export const getUserFiles = async (req, res, next) => {
   try {
-    const files = await prisma.file.findMany({
-      where: { 
-        ownerId: req.user.id,
-        isDeleted: false 
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+    const userId = req.user.id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
 
-    const safeFiles = files.map(f => ({ ...f, size: f.size.toString() }));
-    
+    const [files, totalItems] = await prisma.$transaction([
+      prisma.file.findMany({
+        where: { ownerId: userId, isDeleted: false },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit
+      }),
+      prisma.file.count({
+        where: { ownerId: userId, isDeleted: false }
+      })
+    ]);
+
+    const totalPages = Math.ceil(totalItems / limit);
+
     res.status(200).json({
       success: true,
-      count: safeFiles.length,
-      data: safeFiles
+      data: files.map(f => ({ ...f, size: f.size.toString() })),
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalItems,
+        limit
+      }
     });
   } catch (error) {
     next(error);
@@ -402,18 +416,46 @@ export const restoreFile = async (req, res, next) => {
 export const getTrash = async (req, res, next) => {
   try {
     const userId = req.user.id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
     const [folders, files] = await prisma.$transaction([
       prisma.folder.findMany({
         where: { ownerId: userId, isDeleted: true },
-        orderBy: { updatedAt: 'desc' }
       }),
       prisma.file.findMany({
         where: { ownerId: userId, isDeleted: true },
-        orderBy: { updatedAt: 'desc' }
       })
     ]);
 
-    res.status(200).json({ success: true, data: { folders, files: files.map(f => ({ ...f, size: f.size.toString() })) } });
+    // Combine folders and files, adding a type flag
+    const combined = [
+      ...folders.map(f => ({ ...f, type: 'folder' })),
+      ...files.map(f => ({ ...f, type: 'file', size: f.size.toString() }))
+    ];
+
+    // Sort by updatedAt descending
+    combined.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
+    const totalItems = combined.length;
+    const totalPages = Math.ceil(totalItems / limit);
+    const paginatedItems = combined.slice(skip, skip + limit);
+
+    // Separate back into folders and files for the frontend format
+    const paginatedFolders = paginatedItems.filter(item => item.type === 'folder');
+    const paginatedFiles = paginatedItems.filter(item => item.type === 'file');
+
+    res.status(200).json({ 
+      success: true, 
+      data: { folders: paginatedFolders, files: paginatedFiles },
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalItems,
+        limit
+      }
+    });
   } catch (error) {
     next(error);
   }

@@ -28,6 +28,8 @@ export const protect = async (req, res, next) => {
         id: true,
         email: true,
         isActive: true,
+        storageUsed: true,
+        storageQuota: true,
         // On ne prend que le nécessaire pour la session
       }
     });

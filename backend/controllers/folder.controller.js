@@ -198,12 +198,12 @@ export const getFolderContents = async (req, res, next) => {
 
     const formattedFolders = folders.map(f => {
       const { favorites, ...folderData } = f;
-      return { ...folderData, type: 'folder', isFavorited: favorites.length > 0 };
+      return { ...folderData, type: 'folder', isFavorite: favorites.length > 0 };
     });
 
     const formattedFiles = files.map(f => {
       const { favorites, ...fileData } = f;
-      return { ...fileData, type: 'file', size: f.size.toString(), isFavorited: favorites.length > 0 };
+      return { ...fileData, type: 'file', size: f.size.toString(), isFavorite: favorites.length > 0 };
     });
 
     // Combine them (folders first, then files)

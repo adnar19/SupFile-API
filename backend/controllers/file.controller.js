@@ -205,6 +205,9 @@ export const getUserFiles = async (req, res, next) => {
     const [files, totalItems] = await prisma.$transaction([
       prisma.file.findMany({
         where: { ownerId: userId, isDeleted: false },
+        include: {
+          favorites: { where: { userId } }
+        },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit
@@ -218,7 +221,11 @@ export const getUserFiles = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: files.map(f => ({ ...f, size: f.size.toString() })),
+      data: files.map(f => ({ 
+        ...f, 
+        size: f.size.toString(),
+        isFavorite: f.favorites && f.favorites.length > 0
+      })),
       pagination: {
         currentPage: page,
         totalPages,

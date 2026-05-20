@@ -250,19 +250,25 @@ export const accessPublicShare = async (req, res, next) => {
 // ============================================
 export const shareFolderInternal = async (req, res, next) => {
   try {
-    // CORRECTION : Ajout du paramètre permission (READ par défaut)
-    const { folderId, email, permission = 'READ' } = req.body;
+    const { itemId, type, email, permission = 'READ' } = req.body;
     const userId = req.user.id;
 
-    if (!email || !folderId) throw ErrorTypes.BadRequest("Email et dossier requis.");
+    if (!email || !itemId || !['file', 'folder'].includes(type)) {
+      throw ErrorTypes.BadRequest("Email, type et ID de l'élément requis.");
+    }
 
     // Validation de la valeur de permission
     if (!['READ', 'WRITE'].includes(permission)) {
       throw ErrorTypes.BadRequest("Permission invalide. Valeurs acceptées : READ, WRITE.");
     }
 
-    const folder = await prisma.folder.findUnique({ where: { id: folderId } });
-    if (!folder || folder.ownerId !== userId) throw ErrorTypes.NotFound("Dossier introuvable.");
+    if (type === 'file') {
+      const file = await prisma.file.findUnique({ where: { id: itemId } });
+      if (!file || file.ownerId !== userId) throw ErrorTypes.NotFound("Fichier introuvable.");
+    } else {
+      const folder = await prisma.folder.findUnique({ where: { id: itemId } });
+      if (!folder || folder.ownerId !== userId) throw ErrorTypes.NotFound("Dossier introuvable.");
+    }
 
     const recipient = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!recipient) throw ErrorTypes.NotFound("Utilisateur destinataire introuvable.");
@@ -270,8 +276,11 @@ export const shareFolderInternal = async (req, res, next) => {
     if (recipient.id === userId) throw ErrorTypes.BadRequest("Vous ne pouvez pas partager avec vous-même.");
 
     // Vérifier si déjà partagé
-    const existingShare = await prisma.internalShare.findUnique({
-      where: { folderId_sharedWithId: { folderId, sharedWithId: recipient.id } }
+    const existingShare = await prisma.internalShare.findFirst({
+      where: { 
+        sharedWithId: recipient.id,
+        [type === 'file' ? 'fileId' : 'folderId']: itemId
+      }
     });
 
     if (existingShare) {
@@ -291,16 +300,16 @@ export const shareFolderInternal = async (req, res, next) => {
 
     await prisma.internalShare.create({
       data: {
-        folderId,
+        [type === 'file' ? 'fileId' : 'folderId']: itemId,
         sharedById: userId,
         sharedWithId: recipient.id,
-        permission  // CORRECTION : Enregistrement de la permission choisie
+        permission
       }
     });
 
     res.status(201).json({
       success: true,
-      message: `Dossier partagé avec ${recipient.fullName || recipient.email} (${permission})`
+      message: `${type === 'file' ? 'Fichier' : 'Dossier'} partagé avec ${recipient.fullName || recipient.email} (${permission})`
     });
 
   } catch (error) {
@@ -313,14 +322,22 @@ export const shareFolderInternal = async (req, res, next) => {
 // ============================================
 export const getFolderShares = async (req, res, next) => {
   try {
-    const { folderId } = req.params;
+    const { itemId } = req.params;
+    const { type = 'folder' } = req.query; // par défaut folder pour compatibilité
     const userId = req.user.id;
 
-    const folder = await prisma.folder.findUnique({ where: { id: folderId } });
-    if (!folder || folder.ownerId !== userId) throw ErrorTypes.NotFound("Dossier introuvable.");
+    if (type === 'file') {
+      const file = await prisma.file.findUnique({ where: { id: itemId } });
+      if (!file || file.ownerId !== userId) throw ErrorTypes.NotFound("Fichier introuvable.");
+    } else {
+      const folder = await prisma.folder.findUnique({ where: { id: itemId } });
+      if (!folder || folder.ownerId !== userId) throw ErrorTypes.NotFound("Dossier introuvable.");
+    }
 
     const shares = await prisma.internalShare.findMany({
-      where: { folderId },
+      where: { 
+        [type === 'file' ? 'fileId' : 'folderId']: itemId 
+      },
       include: {
         sharedWith: { select: { id: true, email: true, fullName: true, avatarUrl: true } }
       },
@@ -345,16 +362,19 @@ export const getFolderShares = async (req, res, next) => {
 // ============================================
 export const removeInternalShare = async (req, res, next) => {
   try {
-    const { folderId, email } = req.body;
+    const { itemId, type, email } = req.body;
     const userId = req.user.id;
 
-    if (!folderId || !email) throw ErrorTypes.BadRequest("ID du dossier et email de l'utilisateur requis.");
+    if (!itemId || !type || !email) throw ErrorTypes.BadRequest("ID, type et email requis.");
 
     const recipient = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (!recipient) throw ErrorTypes.NotFound("Utilisateur introuvable.");
 
-    const share = await prisma.internalShare.findUnique({
-      where: { folderId_sharedWithId: { folderId, sharedWithId: recipient.id } }
+    const share = await prisma.internalShare.findFirst({
+      where: { 
+        sharedWithId: recipient.id,
+        [type === 'file' ? 'fileId' : 'folderId']: itemId
+      }
     });
 
     if (!share) throw ErrorTypes.NotFound("Ce partage n'existe pas.");
@@ -379,20 +399,26 @@ export const getSharedWithMe = async (req, res, next) => {
     const shares = await prisma.internalShare.findMany({
       where: {
         sharedWithId: userId,
-        folder: { isDeleted: false }
+        OR: [
+          { folder: { isDeleted: false } },
+          { file: { isDeleted: false } }
+        ]
       },
       include: {
         folder: true,
+        file: true,
         sharedBy: { select: { fullName: true, email: true } }
       },
       orderBy: { createdAt: 'desc' }
     });
 
     const formatted = shares.map(share => ({
-      ...share.folder,
+      type: share.fileId ? 'file' : 'folder',
+      item: share.fileId 
+        ? { ...share.file, size: share.file.size.toString() } 
+        : share.folder,
       sharedBy: share.sharedBy,
       sharedAt: share.createdAt,
-      isShared: true,
       permission: share.permission
     }));
 

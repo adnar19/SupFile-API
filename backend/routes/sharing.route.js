@@ -171,7 +171,7 @@ router.delete('/public/:token', protect, deletePublicLink);          // Révoque
  * @swagger
  * /share/internal:
  *   post:
- *     summary: Partager un dossier avec un autre utilisateur
+ *     summary: Partager un dossier ou un fichier avec un autre utilisateur
  *     tags: [Sharing]
  *     requestBody:
  *       required: true
@@ -179,11 +179,14 @@ router.delete('/public/:token', protect, deletePublicLink);          // Révoque
  *         application/json:
  *           schema:
  *             type: object
- *             required: [folderId, email]
+ *             required: [itemId, type, email]
  *             properties:
- *               folderId:
+ *               itemId:
  *                 type: string
  *                 format: uuid
+ *               type:
+ *                 type: string
+ *                 enum: [file, folder]
  *               email:
  *                 type: string
  *               permission:
@@ -196,7 +199,7 @@ router.post('/internal', protect, shareFolderInternal);              // Partager
  * @swagger
  * /share/internal:
  *   delete:
- *     summary: Révoquer un partage interne
+ *     summary: Révoquer un partage interne (Fichier ou Dossier)
  *     tags: [Sharing]
  *     requestBody:
  *       required: true
@@ -204,11 +207,14 @@ router.post('/internal', protect, shareFolderInternal);              // Partager
  *         application/json:
  *           schema:
  *             type: object
- *             required: [folderId, email]
+ *             required: [itemId, type, email]
  *             properties:
- *               folderId:
+ *               itemId:
  *                 type: string
  *                 format: uuid
+ *               type:
+ *                 type: string
+ *                 enum: [file, folder]
  *               email:
  *                 type: string
  */
@@ -218,14 +224,14 @@ router.delete('/internal', protect, removeInternalShare);            // Révoque
  * @swagger
  * /share/internal/list:
  *   get:
- *     summary: Lister les dossiers partagés avec moi
- *     description: Récupère tous les dossiers auxquels l'utilisateur connecté a accès via un partage interne.
+ *     summary: Lister les éléments partagés avec moi
+ *     description: Récupère tous les fichiers et dossiers auxquels l'utilisateur a accès via un partage interne.
  *     tags: [Sharing]
  *     security:
  *       - cookieAuth: []
  *     responses:
  *       200:
- *         description: Liste des dossiers partagés récupérée avec succès
+ *         description: Liste des éléments partagés récupérée avec succès
  *         content:
  *           application/json:
  *             schema:
@@ -238,11 +244,12 @@ router.delete('/internal', protect, removeInternalShare);            // Révoque
  *                   items:
  *                     type: object
  *                     properties:
- *                       id:
+ *                       type:
  *                         type: string
- *                         format: uuid
- *                       name:
- *                         type: string
+ *                         enum: [file, folder]
+ *                       item:
+ *                         type: object
+ *                         description: Détails du fichier ou dossier
  *                       sharedBy:
  *                         type: object
  *                         properties:
@@ -261,21 +268,26 @@ router.get('/internal/list', protect, getSharedWithMe);              // "Partag�
 
 /**
  * @swagger
- * /share/internal/{folderId}/shares:
+ * /share/internal/{itemId}/shares:
  *   get:
- *     summary: Lister les collaborateurs d'un dossier
- *     description: Récupère la liste des utilisateurs avec qui un dossier spécifique est partagé, ainsi que leurs permissions.
+ *     summary: Lister les collaborateurs d'un élément
+ *     description: Récupère la liste des utilisateurs ayant accès à un fichier ou dossier spécifique.
  *     tags: [Sharing]
  *     security:
  *       - cookieAuth: []
  *     parameters:
  *       - in: path
- *         name: folderId
+ *         name: itemId
  *         required: true
  *         schema:
  *           type: string
  *           format: uuid
- *         description: ID du dossier dont on veut lister les partages.
+ *         description: ID de l'élément (file ou folder).
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [file, folder]
  *     responses:
  *       200:
  *         description: Liste des partages récupérée avec succès

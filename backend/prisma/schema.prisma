@@ -81,6 +81,7 @@ model File {
   folder      Folder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
   isDeleted   Boolean  @default(false) @map("is_deleted")
   publicShares PublicShare[]
+  internalShares InternalShare[]
   favorites    Favorite[]
   deletedAt   DateTime? @map("deleted_at")
   createdAt   DateTime @default(now()) @map("created_at")
@@ -134,8 +135,11 @@ model PublicShare {
 model InternalShare {
   id          String    @id @default(uuid())
   
-  folderId    String    @map("folder_id")
-  folder      Folder    @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  folderId    String?   @map("folder_id")
+  folder      Folder?   @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  fileId      String?   @map("file_id")
+  file        File?     @relation(fields: [fileId], references: [id], onDelete: Cascade)
   
   sharedById  String    @map("shared_by_id")
   sharedBy    User      @relation("SharedBy", fields: [sharedById], references: [id], onDelete: Cascade)
@@ -147,6 +151,7 @@ model InternalShare {
   createdAt   DateTime  @default(now()) @map("created_at")
 
   @@unique([folderId, sharedWithId]) // Un dossier ne peut être partagé qu'une fois avec la même personne
+  @@unique([fileId, sharedWithId])   // Un fichier ne peut être partagé qu'une fois avec la même personne
   @@map("internal_shares")
 }
 

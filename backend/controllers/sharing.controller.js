@@ -390,18 +390,29 @@ export const removeInternalShare = async (req, res, next) => {
 };
 
 // ============================================
-// LIST SHARED WITH ME
+// LIST SHARED WITH ME (FIXED)
 // ============================================
 export const getSharedWithMe = async (req, res, next) => {
   try {
     const userId = req.user.id;
 
+    // FIX: Use proper OR filter with AND conditions to ensure related items exist
     const shares = await prisma.internalShare.findMany({
       where: {
         sharedWithId: userId,
         OR: [
-          { folder: { isDeleted: false } },
-          { file: { isDeleted: false } }
+          {
+            AND: [
+              { fileId: { not: null } },
+              { file: { isDeleted: false } }
+            ]
+          },
+          {
+            AND: [
+              { folderId: { not: null } },
+              { folder: { isDeleted: false } }
+            ]
+          }
         ]
       },
       include: {

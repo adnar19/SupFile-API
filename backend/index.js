@@ -99,27 +99,20 @@ app.use('/favorites', FavoriteRouter);
 
 // DATABASE CONNECTION
 startCronJobs();
-const DatabaseConnection = async () => {
-  try {
-    await prisma.$connect();
-    console.log('✅ Database connected successfully');
-  } catch (error) {
-    console.error('❌ Database connection failed:', error.message);
-    process.exit(1); 
-  }
-};
-
 // SERVER LISTEN
-server.listen(PORT, async () => {
-  console.log(`🚀 Server is running on http://localhost:${PORT}`);
-  try {
-     await DatabaseConnection();
+try {
+  await prisma.$connect();
+  console.log('✅ Database connected successfully');
+  
+  server.listen(PORT, () => {
+    console.log(`🚀 Server is running on http://localhost:${PORT}`);
     setupSwagger(app, PORT);
     console.info(`ℹ️ Swagger documentation available at http://localhost:${PORT}/docs`);
-  } catch(error) {
-    console.error('❌ Unable to connect to the database:', error);
-  }
-});
+  });
+} catch (error) {
+  console.error('❌ Database connection failed:', error.message);
+  process.exit(1);
+}
 
 // ERROR HANDLING
 app.use((err, req, res, next) => {

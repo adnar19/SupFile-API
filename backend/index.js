@@ -19,7 +19,7 @@ import { apiLimiter } from './middlewares/rateLimit.middleware.js';
 import { startCronJobs } from './utils/cron.js';
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
 
 // Pour utiliser __dirname avec les modules ES

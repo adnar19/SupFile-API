@@ -7,6 +7,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
     "dev": "npm run db:generate && nodemon index.js",
+    "diagrams:generate": "node scripts/generateDiagrams.js",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev --name",
@@ -55,5 +56,6 @@
     "prisma": "^6.19.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
+    ,"@mermaid-js/mermaid-cli": "^11.15.0"
   }
 }

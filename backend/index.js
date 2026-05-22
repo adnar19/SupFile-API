@@ -26,7 +26,34 @@ const server = http.createServer(app);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Rate Limiting - Appliquer le limiteur général à toutes les requêtes
+// CORS
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://127.0.0.1:5173'
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // On vérifie si l'origine est autorisée ou si c'est une requête locale (origin undefined)
+    const isAllowed = !origin || allowedOrigins.some(allowed => 
+      allowed && origin.startsWith(allowed.replace(/\/$/, ''))
+    );
+    
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      // On renvoie false au lieu d'une Error pour éviter un crash 500 sur le Preflight
+      callback(null, false);
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200,
+}));
+
+// Rate Limiting - Après CORS
 app.use(apiLimiter);
 
 // MIDDLEWARES
@@ -36,22 +63,6 @@ app.use(express.urlencoded({ extended: true }));
 
 // Servir les fichiers statiques (avatars par défaut, etc.) depuis le dossier 'public'
 app.use('/public', express.static(path.join(__dirname, 'public')));
-
-// CORS
-const allowedOrigins = [process.env.FRONTEND_URL,'http://localhost:5173', 'http://127.0.0.1:5173'];
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error(`Origin ${origin} not allowed by CORS`));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 200,
-}));
 
 // Security Headers for Google Auth for the login popup 
 app.use((req, res, next) => {

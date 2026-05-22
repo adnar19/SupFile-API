@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser';
 import setupSwagger from './utils/swagger.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 import cors from 'cors';
 import prisma ,{ disconnectPrisma} from './lib/prisma.js';
 import AuthRouter from './routes/auth.route.js';
@@ -18,13 +19,31 @@ import FavoriteRouter from './routes/favorite.route.js';
 import { apiLimiter } from './middlewares/rateLimit.middleware.js';
 import { startCronJobs } from './utils/cron.js';
 
+/// Fix pour la sérialisation des BigInt (Prisma) en JSON
+BigInt.prototype.toJSON = function () {
+  return this.toString();
+};
+
 const app = express();
+// Indique à Express de faire confiance aux en-têtes envoyés par le proxy de Render
+// Nécessaire pour express-rate-limit
+app.set('trust proxy', 1);
+
 const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
 
 // Pour utiliser __dirname avec les modules ES
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Vérification des fichiers critiques au démarrage
+if (process.env.NODE_ENV === 'production' && process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+  if (!fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+    console.error(`❌ CRITICAL: Firebase Service Account file not found at ${process.env.GOOGLE_APPLICATION_CREDENTIALS}`);
+  } else {
+    console.log('✅ Firebase Service Account file verified');
+  }
+}
 
 // CORS
 const allowedOrigins = [
@@ -35,16 +54,15 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // On vérifie si l'origine est autorisée ou si c'est une requête locale (origin undefined)
-    const isAllowed = !origin || allowedOrigins.some(allowed => 
-      allowed && origin.startsWith(allowed.replace(/\/$/, ''))
-    );
+    // Autorise le local, l'URL de prod, et toutes les URLs de preview Vercel
+    const isAllowed = !origin || 
+                     allowedOrigins.includes(origin) || 
+                     origin.endsWith('.vercel.app');
     
     if (isAllowed) {
       callback(null, true);
     } else {
-      // On renvoie false au lieu d'une Error pour éviter un crash 500 sur le Preflight
-      callback(null, false);
+      callback(null, true); // En développement/debug, on peut être plus souple
     }
   },
   credentials: true,
@@ -66,7 +84,7 @@ app.use('/public', express.static(path.join(__dirname, 'public')));
 
 // Security Headers for Google Auth for the login popup 
 app.use((req, res, next) => {
-  res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+  res.setHeader("Cross-Origin-Opener-Policy", "unsafe-none");
   next();
 });
 
@@ -105,6 +123,12 @@ server.listen(PORT, async () => {
 
 // ERROR HANDLING
 app.use((err, req, res, next) => {
+  // Log détaillé pour voir la cause exacte du crash 500 dans la console de Render
+  if (process.env.NODE_ENV !== 'test') {
+    console.error('--- EXCEPTION DETECTED ---');
+    console.error(err.stack || err);
+  }
+
   const statusCode = err.statusCode || 500;
   const message = err.message || 'Internal Server Error';
   return res.status(statusCode).json({

@@ -438,3 +438,43 @@ export const getSharedWithMe = async (req, res, next) => {
     next(error);
   }
 };
+
+// ============================================
+// UPDATE INTERNAL SHARE PERMISSION
+// ============================================
+export const updateSharePermission = async (req, res, next) => {
+  try {
+    const { shareId } = req.params;
+    const { permission } = req.body;
+    const userId = req.user.id;
+
+    if (!shareId || !permission) {
+      throw ErrorTypes.BadRequest("ID du partage et permission requis.");
+    }
+
+    if (!['READ', 'WRITE'].includes(permission)) {
+      throw ErrorTypes.BadRequest("Permission invalide. Valeurs acceptées : READ, WRITE.");
+    }
+
+    const share = await prisma.internalShare.findUnique({ where: { id: shareId } });
+    if (!share) throw ErrorTypes.NotFound("Partage introuvable.");
+
+    if (share.sharedById !== userId) throw ErrorTypes.Forbidden("Vous n'êtes pas l'auteur de ce partage.");
+
+    if (share.permission === permission) {
+      return res.status(200).json({ success: true, message: "La permission est déjà celle demandée." });
+    }
+
+    await prisma.internalShare.update({
+      where: { id: shareId },
+      data: { permission }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Permission mise à jour en ${permission}.`
+    });
+  } catch (error) {
+    next(error);
+  }
+};

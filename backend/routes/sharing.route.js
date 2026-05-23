@@ -9,7 +9,8 @@ import {
   shareFolderInternal, 
   getFolderShares,
   removeInternalShare,
-  getSharedWithMe 
+  getSharedWithMe,
+  updateSharePermission
 } from '../controllers/sharing.controller.js';
 
 const router = express.Router();
@@ -219,6 +220,56 @@ router.post('/internal', protect, shareFolderInternal);              // Partager
  *                 type: string
  */
 router.delete('/internal', protect, removeInternalShare);            // Révoquer un partage
+
+/**
+ * @swagger
+ * /share/internal/{shareId}/permission:
+ *   patch:
+ *     summary: Modifier les permissions d'un partage interne
+ *     description: Met à jour les permissions (READ ou WRITE) pour un partage interne existant.
+ *     tags: [Sharing]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: shareId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [permission]
+ *             properties:
+ *               permission:
+ *                 type: string
+ *                 enum: [READ, WRITE]
+ *                 description: Nouvelle permission à appliquer
+ *     responses:
+ *       200:
+ *         description: Permission mise à jour avec succès
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ */
+router.patch('/internal/:shareId/permission', protect, updateSharePermission);  // Modifier les permissions
 
 /**
  * @swagger

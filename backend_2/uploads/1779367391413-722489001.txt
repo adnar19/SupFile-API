@@ -1,0 +1,24 @@
+Semaine 1 :
+
+-Comprendre le problème du flot maximum et la relation avec la théorie des graphes.
+-Rechercher/décrire plusieurs applications réelles du problème.
+
+Semaine 2 :
+
+-Comprendre le principe des algorithmes, en vue de les intégrer dans l’application.
+
+Semaine 3 :
+
+-Établir le cahier des charges du projet.
+
+Semaine 4 et 5 :
+
+-Concevoir l’application à réaliser.
+
+Semaine 6 :
+
+-Réaliser l’application.
+
+Semaine 7 :
+
+-Tester l’application sur des graphes variés, voir même des graphes assez larges, appartenant à des data sets publiés sur internet.

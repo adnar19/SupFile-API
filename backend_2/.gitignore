@@ -1,0 +1,11 @@
+/node_modules
+/.env
+/generated/prisma
+# Prisma
+prisma/migrations/*
+!prisma/migrations/.gitkeep
+
+/.qodo
+/.uploads
+firebase.js
+/.vscode

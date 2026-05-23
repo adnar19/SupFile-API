@@ -174,22 +174,24 @@ export const getFolderContents = async (req, res, next) => {
       })
     ]);
 
-    // Build Breadcrumbs (Ancestors) - Optimized version
-    const pathParts = currentFolder.path.split('/').filter(p => p);
-    const ancestorPaths = pathParts.map((part, index) => {
-      return '/' + pathParts.slice(0, index + 1).join('/');
-    });
+    // Build Breadcrumbs (Ancestors) by walking the parent chain
+    const breadcrumbs = [];
+    let folderPointer = currentFolder;
 
-    const breadcrumbsData = await prisma.folder.findMany({
-      where: {
-        ownerId: userId,
-        path: { in: ancestorPaths }
-      },
-      select: { id: true, name: true, path: true },
-    });
+    while (folderPointer) {
+      breadcrumbs.unshift({
+        id: folderPointer.id,
+        name: folderPointer.name,
+        path: folderPointer.path || ''
+      });
 
-    // Sort breadcrumbs correctly based on path depth
-    const breadcrumbs = breadcrumbsData.sort((a, b) => a.path.length - b.path.length);
+      if (!folderPointer.parentId) break;
+
+      folderPointer = await prisma.folder.findUnique({
+        where: { id: folderPointer.parentId },
+        select: { id: true, name: true, path: true, parentId: true }
+      });
+    }
 
     // Pagination logic
     const page = parseInt(req.query.page) || 1;

@@ -22,43 +22,7 @@ const router = express.Router();
  */
 
 // ============================================
-// Routes Publiques (Accessibles sans être connecté)
-// ============================================
-
-/**
- * @swagger
- * /share/public/{token}:
- *   get:
- *     summary: Obtenir les infos d'un partage public
- *     tags: [Sharing]
- *     parameters:
- *       - in: path
- *         name: token
- *         required: true
- *         schema:
- *           type: string
- */
-router.get('/public/:token', getPublicShareInfo);
-
-/**
- * @swagger
- * /share/public/{token}/download:
- *   post:
- *     summary: Accéder au contenu public (avec mdp si requis)
- *     tags: [Sharing]
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               password:
- *                 type: string
- */
-router.post('/public/:token/download', accessPublicShare);
-
-// ============================================
-// Routes Protégées — Liens publics
+// Routes Protégées — Liens publics (Specific routes BEFORE parameterized ones)
 // ============================================
 
 /**
@@ -153,6 +117,42 @@ router.post('/public/create', protect, createPublicLink);
  *         $ref: '#/components/responses/UnauthorizedError'
  */
 router.get('/public/my-links', protect, getMyPublicLinks);          // Liste de mes liens
+
+// ============================================
+// Routes Publiques (Catch-all parameterized routes - must be AFTER specific routes)
+// ============================================
+
+/**
+ * @swagger
+ * /share/public/{token}:
+ *   get:
+ *     summary: Obtenir les infos d'un partage public
+ *     tags: [Sharing]
+ *     parameters:
+ *       - in: path
+ *         name: token
+ *         required: true
+ *         schema:
+ *           type: string
+ */
+router.get('/public/:token', getPublicShareInfo);
+
+/**
+ * @swagger
+ * /share/public/{token}/download:
+ *   post:
+ *     summary: Accéder au contenu public (avec mdp si requis)
+ *     tags: [Sharing]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               password:
+ *                 type: string
+ */
+router.post('/public/:token/download', accessPublicShare);
 
 /**
  * @swagger

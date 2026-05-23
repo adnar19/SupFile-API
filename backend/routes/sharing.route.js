@@ -377,6 +377,6 @@ router.get('/internal/list', protect, getSharedWithMe);              // "Partag�
  *                         type: string
  *                         format: date-time
  */
-router.get('/internal/:folderId/shares', protect, getFolderShares);  // Collaborateurs d'un dossier
+router.get('/internal/:itemId/shares', protect, getFolderShares);  // Collaborateurs d'un élément
 
 export default router;

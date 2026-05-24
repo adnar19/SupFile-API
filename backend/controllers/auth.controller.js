@@ -19,7 +19,19 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 if (!admin.apps.length) {
-  admin.initializeApp();
+  if (process.env.FIREBASE_PRIVATE_KEY) {
+    // Production (Render) — variables d'environnement individuelles
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      }),
+    });
+  } else {
+    // Local / Docker — fichier ServiceAccount.json via GOOGLE_APPLICATION_CREDENTIALS
+    admin.initializeApp();
+  }
 }
 
 const formatProviderName = (providerId) => {
@@ -157,32 +169,15 @@ export const OauthSignin = async (req, res, next) => {
 
     let email, name, picture, uid;
 
-    if (provider === 'google') {
-      const googleResponse = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`);
-      if (!googleResponse.ok) {
-        const errorData = await googleResponse.json();
-        throw ErrorTypes.Unauthorized(`Token Google invalide: ${errorData.error_description || 'Erreur de verification'}`);
-      }
-      const googleData = await googleResponse.json();
-      email = googleData.email;
-      name = googleData.name;
-      picture = googleData.picture;
-      uid = googleData.sub;
-    } else if (provider === 'microsoft') {
-      try {
-        const parts = idToken.split('.');
-        if (parts.length !== 3) throw new Error('Format de token invalide');
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-        email = payload.email || payload.preferred_username || payload.upn;
-        name = payload.name;
-        picture = null;
-        uid = payload.sub || payload.oid;
-        if (!email) throw new Error('Email non trouve dans le token');
-      } catch (decodeError) {
-        throw ErrorTypes.Unauthorized('Token Microsoft invalide: ' + decodeError.message);
-      }
-    } else {
-      throw ErrorTypes.BadRequest('Provider non supporte');
+    // Firebase Admin vérifie les tokens Firebase (Google ET Microsoft via Firebase)
+    try {
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      email = decodedToken.email;
+      name = decodedToken.name;
+      picture = decodedToken.picture;
+      uid = decodedToken.uid;
+    } catch (firebaseError) {
+      throw ErrorTypes.Unauthorized(`Token invalide: ${firebaseError.message}`);
     }
 
     if (!email) throw ErrorTypes.BadRequest('Email invalide dans le token');

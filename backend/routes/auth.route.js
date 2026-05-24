@@ -13,8 +13,9 @@ import {
   changePassword,
   updateTheme,
   uploadAvatarHandler,
-  deleteAccount
-} from '../controllers/auth.controller.js'; 
+  deleteAccount,
+  resendVerificationEmail
+} from '../controllers/auth.controller.js';
 import { authLimiter } from '../middlewares/rateLimit.middleware.js';
 import { protect } from '../middlewares/auth.middleware.js';
 import { uploadAvatar } from '../middlewares/upload.middleware.js';
@@ -279,6 +280,9 @@ router.put('/theme', protect, updateTheme);
 
 // Upload avatar
 router.put('/avatar', protect, uploadAvatar.single('file'), uploadAvatarHandler);
+
+// Renvoyer l'email de vérification
+router.post('/resend-verification', protect, resendVerificationEmail);
 
 // Supprimer le compte et toutes les données associées
 router.delete('/account', protect, deleteAccount);

@@ -111,7 +111,7 @@ export const verifyAndConsumeToken = async (token, type) => {
 export const sendVerificationEmail = async (email, token, fullName) => {
   // --- DÉTECTION AUTOMATIQUE DE L'URL ---
   const baseUrl = await getBaseUrl();
-  const verificationUrl = `${baseUrl}/auth/verify-email/${token}`;
+  const verificationUrl = `${baseUrl}/verify-email?token=${token}`;
 
   const emailHtml = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">

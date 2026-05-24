@@ -303,7 +303,15 @@ export const createFolder = async (req, res, next) => {
     let parentPath = '';
     let finalParentId = parentId;
 
-    if (parentId) {
+    // Resolve "root" to the user's actual root folder (first folder with no parent)
+    if (parentId === 'root' || !parentId) {
+      const rootFolder = await prisma.folder.findFirst({
+        where: { ownerId: userId, parentId: null }
+      });
+      if (!rootFolder) throw ErrorTypes.NotFound('Dossier racine introuvable');
+      finalParentId = rootFolder.id;
+      parentPath = rootFolder.path;
+    } else if (parentId) {
       const parentFolder = await prisma.folder.findUnique({
         where: { id: parentId }
       });
@@ -321,10 +329,6 @@ export const createFolder = async (req, res, next) => {
       }
 
       parentPath = parentFolder.path;
-    } else {
-      // Pas de parentId : créer à la racine sans rattacher à "My Files"
-      finalParentId = null;
-      parentPath = `/${name}`;
     }
 
     // Gestion des conflits de nom

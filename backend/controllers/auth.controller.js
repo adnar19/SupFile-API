@@ -1,9 +1,12 @@
 import bcrypt from 'bcrypt';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import prisma from '../lib/prisma.js';
 import { ErrorTypes } from '../utils/ApiError.js';
 import { validateSignupData, validateSigninData, validatePassword } from '../utils/validator.js';
-import { 
-  createVerificationToken, 
+import {
+  createVerificationToken,
   sendVerificationEmail,
   verifyAndConsumeToken,
   createPasswordResetToken,
@@ -12,17 +15,20 @@ import {
 import jwt from 'jsonwebtoken';
 import admin from 'firebase-admin';
 
-// Initialisation de Firebase Admin pour la vérification des tokens
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 if (!admin.apps.length) {
   admin.initializeApp();
 }
 
-// Helper to format provider name for messages
 const formatProviderName = (providerId) => {
-    if (!providerId) return 'OAuth';
-    const name = providerId.split('.')[0];
-    return name.charAt(0).toUpperCase() + name.slice(1);
+  if (!providerId) return 'OAuth';
+  const name = providerId.split('.')[0];
+  return name.charAt(0).toUpperCase() + name.slice(1);
 };
+
+const DEFAULT_FOLDERS = ['Documents', 'Photos', 'Videos', 'Audio'];
 
 // ============================================
 // SIGNUP
@@ -35,7 +41,7 @@ export const signup = async (req, res, next) => {
     const existingUser = await prisma.user.findUnique({
       where: { email: email.toLowerCase() }
     });
-    if (existingUser) throw ErrorTypes.Conflict('Cet email est déjà utilisé');
+    if (existingUser) throw ErrorTypes.Conflict('Cet email est deja utilise');
 
     const hashedPassword = await bcrypt.hash(password, 12);
 
@@ -45,42 +51,22 @@ export const signup = async (req, res, next) => {
         password: hashedPassword,
         fullName: fullName || null,
         emailVerified: false,
-        // Le compte est toujours actif dès la création. emailVerified contrôle l'accès aux
-        // fonctionnalités nécessitant un email vérifié, mais ne bloque pas le compte.
         isActive: true,
         avatarUrl: '/public/images/default-avatar-profile.avif',
       },
       select: {
-        id: true,
-        email: true,
-        fullName: true,
-        theme: true,
-        emailVerified: true,
-        isActive: true,
-        storageUsed: true,
-        storageQuota: true,
-        avatarUrl: true,
-        createdAt: true,
+        id: true, email: true, fullName: true, theme: true,
+        emailVerified: true, isActive: true, storageUsed: true,
+        storageQuota: true, avatarUrl: true, createdAt: true,
       }
     });
 
     await prisma.folder.create({
-      data: {
-        name: 'My Files',
-        ownerId: user.id,
-        path: '/My Files'
-      }
+      data: { name: 'My Files', ownerId: user.id, path: '/My Files' }
     });
-
-    // Créer les 4 dossiers par défaut
-    const defaultFolders = ['Documents', 'Photos', 'Videos', 'Audio'];
-    for (const folderName of defaultFolders) {
+    for (const folderName of DEFAULT_FOLDERS) {
       await prisma.folder.create({
-        data: {
-          name: folderName,
-          ownerId: user.id,
-          path: `/${folderName}`
-        }
+        data: { name: folderName, ownerId: user.id, path: `/${folderName}` }
       });
     }
 
@@ -89,7 +75,7 @@ export const signup = async (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      message: 'Compte créé. Vérifiez votre email.',
+      message: 'Compte cree. Verifiez votre email.',
       data: {
         user: {
           ...user,
@@ -119,18 +105,19 @@ export const signin = async (req, res, next) => {
       throw ErrorTypes.Unauthorized('Email ou mot de passe incorrect');
     }
 
-    // Si le compte est désactivé (ex: recréé sans vérification), le réactiver automatiquement
     if (!user.isActive) {
       await prisma.user.update({ where: { id: user.id }, data: { isActive: true } });
     }
 
-    // Vérification email pilotée par l'environnement  -- apport WEB
-    // En production (défaut) on exige la vérification ; en dev on peut désactiver via REQUIRE_EMAIL_VERIFICATION=false
     if (!user.emailVerified && process.env.REQUIRE_EMAIL_VERIFICATION !== 'false') {
-      throw ErrorTypes.Forbidden('Veuillez vérifier votre email.');
+      throw ErrorTypes.Forbidden('Veuillez verifier votre email.');
     }
 
-    const token = jwt.sign({ id: user.id, email: user.email, fullName: user.fullName }, process.env.JWT_SECRET, { expiresIn: '24h' });
+    const token = jwt.sign(
+      { id: user.id, email: user.email, fullName: user.fullName },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
 
     res.cookie('access_token', token, {
       httpOnly: true,
@@ -139,7 +126,7 @@ export const signin = async (req, res, next) => {
       maxAge: 24 * 60 * 60 * 1000
     }).status(200).json({
       success: true,
-      message: 'Connecté',
+      message: 'Connecte',
       data: {
         token,
         user: {
@@ -159,36 +146,29 @@ export const signin = async (req, res, next) => {
 };
 
 // ============================================
-// OAuth Signin
+// OAUTH SIGNIN — Google tokeninfo + Microsoft JWT decode (pas Firebase Admin)
 // ============================================
 export const OauthSignin = async (req, res, next) => {
-  console.log('=== OAUTH SIGNIN CALLED ===');
   try {
     const { idToken, provider } = req.body;
-    console.log('Provider:', provider);
 
-    if (!idToken) throw ErrorTypes.BadRequest("ID Token requis");
-    if (!provider) throw ErrorTypes.BadRequest("Provider requis (google ou microsoft)");
+    if (!idToken) throw ErrorTypes.BadRequest('ID Token requis');
+    if (!provider) throw ErrorTypes.BadRequest('Provider requis (google ou microsoft)');
 
     let email, name, picture, uid;
 
-    // Vérifier le token selon le provider
     if (provider === 'google') {
-      // Vérifier le token Google via l'API Google tokeninfo
       const googleResponse = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`);
       if (!googleResponse.ok) {
         const errorData = await googleResponse.json();
-        console.error('Google token error:', errorData);
-        throw ErrorTypes.Unauthorized(`Token Google invalide: ${errorData.error_description || 'Erreur de vérification'}`);
+        throw ErrorTypes.Unauthorized(`Token Google invalide: ${errorData.error_description || 'Erreur de verification'}`);
       }
       const googleData = await googleResponse.json();
       email = googleData.email;
       name = googleData.name;
       picture = googleData.picture;
       uid = googleData.sub;
-      console.log('Google user:', email, name);
     } else if (provider === 'microsoft') {
-      // Pour Microsoft, décoder le id_token (JWT)
       try {
         const parts = idToken.split('.');
         if (parts.length !== 3) throw new Error('Format de token invalide');
@@ -197,25 +177,19 @@ export const OauthSignin = async (req, res, next) => {
         name = payload.name;
         picture = null;
         uid = payload.sub || payload.oid;
-        console.log('Microsoft user:', email, name);
-        if (!email) throw new Error('Email non trouvé dans le token');
+        if (!email) throw new Error('Email non trouve dans le token');
       } catch (decodeError) {
-        console.error('Microsoft token decode error:', decodeError);
         throw ErrorTypes.Unauthorized('Token Microsoft invalide: ' + decodeError.message);
       }
     } else {
-      throw ErrorTypes.BadRequest("Provider non supporté");
+      throw ErrorTypes.BadRequest('Provider non supporte');
     }
 
-    if (!email) throw ErrorTypes.BadRequest("Email invalide dans le token");
+    if (!email) throw ErrorTypes.BadRequest('Email invalide dans le token');
 
-    // Chercher ou créer l'utilisateur
-    let user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
-    });
+    let user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
 
     if (!user) {
-      // Créer un nouvel utilisateur
       const generatedPassword = Math.random().toString(36).slice(-8);
       const hashedPassword = await bcrypt.hash(generatedPassword, 12);
 
@@ -237,25 +211,15 @@ export const OauthSignin = async (req, res, next) => {
         }
       });
 
-      // Créer le dossier racine
       await prisma.folder.create({
         data: { name: 'My Files', ownerId: user.id, path: '/My Files' }
       });
-      
-      // Créer les 4 dossiers par défaut
-      const defaultFolders = ['Documents', 'Photos', 'Videos', 'Audios'];
-      for (const folderName of defaultFolders) {
+      for (const folderName of DEFAULT_FOLDERS) {
         await prisma.folder.create({
-          data: {
-            name: folderName,
-            ownerId: user.id,
-            path: `/${folderName}`
-          }
+          data: { name: folderName, ownerId: user.id, path: `/${folderName}` }
         });
       }
-      console.log('New user created:', user.email);
     } else {
-      // Mettre à jour l'avatar OAuth et réactiver le compte si nécessaire
       const hasCustomAvatar = user.avatarUrl && user.avatarUrl.startsWith('/uploads/');
       const updateData = { isActive: true, emailVerified: true };
       if (picture && !hasCustomAvatar && picture !== user.avatarUrl) {
@@ -270,10 +234,8 @@ export const OauthSignin = async (req, res, next) => {
           storageQuota: true, avatarUrl: true, createdAt: true,
         }
       });
-      console.log('Existing user logged in:', user.email);
     }
 
-    // Générer le JWT
     const token = jwt.sign(
       { id: user.id, email: user.email, fullName: user.fullName },
       process.env.JWT_SECRET,
@@ -288,7 +250,7 @@ export const OauthSignin = async (req, res, next) => {
     }).status(200).json({
       success: true,
       statusCode: 200,
-      message: `Connecté via ${provider}`,
+      message: `Connecte via ${provider}`,
       data: {
         token,
         user: {
@@ -299,105 +261,82 @@ export const OauthSignin = async (req, res, next) => {
       }
     });
   } catch (error) {
-    console.error('OAuth error:', error);
     next(error);
   }
 };
+
+// ============================================
+// OAUTH SIGNUP — Firebase Admin (utilisé côté mobile)
+// ============================================
 export const OauthSignup = async (req, res, next) => {
   try {
     const { idToken, provider } = req.body;
-    console.log('=== OAuth Signup - Provider:', provider);
 
-    if (!idToken) throw ErrorTypes.BadRequest("ID Token requis");
+    if (!idToken) throw ErrorTypes.BadRequest('ID Token requis');
 
     let decodedToken;
-    
-    // Vérifier si c'est un token de test
-    if (idToken.includes("mock_")) {
-      console.log('=== Using mock OAuth token for testing ===');
-      
-      // Extraire l'email du token mock
+
+    if (idToken.includes('mock_')) {
       let email = 'mockuser@example.com';
-      if (idToken.includes('user_gmail_com')) {
-        email = 'user@gmail.com';
-      } else if (idToken.includes('work_company_com')) {
-        email = 'work@company.com';
-      } else if (idToken.includes('personal_outlook_com')) {
-        email = 'personal@outlook.com';
-      }
-      
-      // Utiliser le provider fourni ou le déduire du token
+      if (idToken.includes('user_gmail_com')) email = 'user@gmail.com';
+      else if (idToken.includes('work_company_com')) email = 'work@company.com';
+      else if (idToken.includes('personal_outlook_com')) email = 'personal@outlook.com';
+
       const oauthProvider = provider || (idToken.includes('google') ? 'google.com' : 'microsoft.com');
-      
       decodedToken = {
-        email: email,
-        name: email.split('@')[0], // Use email prefix as name
+        email,
+        name: email.split('@')[0],
         picture: null,
         uid: 'mock_user_id_' + Date.now(),
-        firebase: {
-          sign_in_provider: oauthProvider
-        }
+        firebase: { sign_in_provider: oauthProvider }
       };
     } else {
-      // SECURITY: Verify token to get the real email
       decodedToken = await admin.auth().verifyIdToken(idToken);
-      // Si le provider est fourni, l'utiliser pour la cohérence
       if (provider && decodedToken.firebase) {
         decodedToken.firebase.sign_in_provider = provider === 'google' ? 'google.com' : 'microsoft.com';
       }
     }
-    
+
     const { email, name, picture, uid, firebase } = decodedToken;
     const oauthProvider = firebase.sign_in_provider;
 
-    if (!email) throw ErrorTypes.BadRequest("Email invalide dans le token");
+    if (!email) throw ErrorTypes.BadRequest('Email invalide dans le token');
 
-    const existingUser = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
-    });
-
+    const existingUser = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
     if (existingUser) {
-      throw ErrorTypes.Conflict('Cet email est déjà utilisé. Veuillez vous connecter.');
+      throw ErrorTypes.Conflict('Cet email est deja utilise. Veuillez vous connecter.');
     }
-   // Génération d'un mot de passe aléatoire pour les utilisateurs OAuth 
+
     const generatedPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
-    // Hashage du mot de passe généré une bonne pratique de le stocker de manière sécurisée
     const hashedPassword = await bcrypt.hash(generatedPassword, 12);
 
     const user = await prisma.user.create({
       data: {
         email: email.toLowerCase(),
         password: hashedPassword,
-        fullName: name, // Use name from verified token
-        emailVerified: true, // OAuth users are verified by the provider
+        fullName: name,
+        emailVerified: true,
         isActive: true,
-        avatarUrl: picture || null, // Correct field name and use picture from token
+        avatarUrl: picture || null,
         oauthProvider: provider,
         oauthId: uid,
       },
       select: {
-        id: true,
-        email: true,
-        fullName: true,
-        theme: true,
-        emailVerified: true,
-        oauthProvider: true,
-        isActive: true,
-        storageUsed: true,
-        storageQuota: true,
-        createdAt: true,
+        id: true, email: true, fullName: true, theme: true,
+        emailVerified: true, oauthProvider: true, isActive: true,
+        storageUsed: true, storageQuota: true, createdAt: true,
       }
     });
 
     await prisma.folder.create({
-      data: {
-        name: 'My Files',
-        ownerId: user.id,
-        path: '/My Files'
-      }
+      data: { name: 'My Files', ownerId: user.id, path: '/My Files' }
     });
 
-    const token = jwt.sign({ id: user.id, email: user.email, fullName: user.fullName }, process.env.JWT_SECRET, { expiresIn: '24h' });
+    const token = jwt.sign(
+      { id: user.id, email: user.email, fullName: user.fullName },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
 
     res.cookie('access_token', token, {
       httpOnly: true,
@@ -406,7 +345,7 @@ export const OauthSignup = async (req, res, next) => {
       maxAge: 24 * 60 * 60 * 1000
     }).status(201).json({
       success: true,
-      message: `Compte créé via ${formatProviderName(oauthProvider)}`,
+      message: `Compte cree via ${formatProviderName(oauthProvider)}`,
       data: {
         token,
         user: {
@@ -432,7 +371,7 @@ export const verifyEmail = async (req, res, next) => {
       where: { id: userId },
       data: { emailVerified: true, isActive: true }
     });
-    res.status(200).json({ success: true, message: 'Email vérifié' });
+    res.status(200).json({ success: true, message: 'Email verifie' });
   } catch (error) {
     next(error);
   }
@@ -446,42 +385,47 @@ export const getCurrentUser = async (req, res, next) => {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: {
-        id: true,
-        email: true,
-        fullName: true,
-        avatarUrl: true,
-        theme: true,
-        storageUsed: true,
-        storageQuota: true
+        id: true, email: true, fullName: true, avatarUrl: true,
+        theme: true, storageUsed: true, storageQuota: true
       }
     });
 
-    const safeUser = {
-      ...user,
-      storageUsed: user.storageUsed.toString(),
-      storageQuota: user.storageQuota.toString()
-    };
-
-    console.log('getCurrentUser returning user with avatarUrl:', safeUser.avatarUrl);
-    res.status(200).json({ success: true, data: safeUser });
+    res.status(200).json({
+      success: true,
+      data: {
+        ...user,
+        storageUsed: user.storageUsed.toString(),
+        storageQuota: user.storageQuota.toString()
+      }
+    });
   } catch (error) {
     next(error);
   }
 };
 
 // ============================================
-// RESEND VERIFICATION
+// RESEND VERIFICATION EMAIL
 // ============================================
 export const resendVerificationEmail = async (req, res, next) => {
-    try {
-      const user = await prisma.user.findUnique({ where: { id: req.user.id } });
-      if (!user) throw ErrorTypes.NotFound("Utilisateur non trouvé.");
-      if (user.emailVerified) return res.status(200).json({ success: true, message: "Votre email est déjà vérifié." });
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user) throw ErrorTypes.NotFound('Utilisateur non trouve.');
+    if (user.emailVerified) {
+      return res.status(200).json({ success: true, message: 'Votre email est deja verifie.' });
+    }
+    const token = await createVerificationToken(user.id);
+    await sendVerificationEmail(user.email, token, user.fullName);
+    res.status(200).json({ success: true, message: 'Email renvoye' });
+  } catch (error) {
+    next(error);
+  }
+};
 
-      const token = await createVerificationToken(user.id);
-      await sendVerificationEmail(user.email, token, user.fullName);
-      res.status(200).json({ success: true, message: 'Email renvoyé' });
-    } catch (error) { next(error); }
+// ============================================
+// SIGNOUT
+// ============================================
+export const signout = async (req, res, next) => {
+  res.clearCookie('access_token').status(200).json({ success: true, message: 'Deconnecte' });
 };
 
 // ============================================
@@ -490,16 +434,10 @@ export const resendVerificationEmail = async (req, res, next) => {
 export const forgotPassword = async (req, res, next) => {
   try {
     const { email } = req.body;
-    if (!email) {
-      throw ErrorTypes.BadRequest("L'adresse email est requise.");
-    }
+    if (!email) throw ErrorTypes.BadRequest("L'adresse email est requise.");
 
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
-    });
+    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
 
-    // IMPORTANT: Ne pas révéler si l'utilisateur existe ou non.
-    // Toujours envoyer une réponse de succès pour éviter les attaques par énumération d'utilisateurs.
     if (user) {
       const resetToken = await createPasswordResetToken(user.id);
       await sendPasswordResetEmail(user.email, resetToken, user.fullName);
@@ -507,9 +445,8 @@ export const forgotPassword = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: "Si un compte est associé à cet email, un lien de réinitialisation a été envoyé."
+      message: "Si un compte est associe a cet email, un lien de reinitialisation a ete envoye."
     });
-
   } catch (error) {
     next(error);
   }
@@ -524,13 +461,12 @@ export const resetPassword = async (req, res, next) => {
     const { password, confirmPassword } = req.body;
 
     if (password !== confirmPassword) {
-      throw ErrorTypes.BadRequest("Les mots de passe ne correspondent pas.");
+      throw ErrorTypes.BadRequest('Les mots de passe ne correspondent pas.');
     }
 
     validatePassword(password);
 
     const { userId } = await verifyAndConsumeToken(token, 'PASSWORD_RESET');
-    
     const hashedPassword = await bcrypt.hash(password, 12);
 
     await prisma.user.update({
@@ -538,11 +474,8 @@ export const resetPassword = async (req, res, next) => {
       data: { password: hashedPassword, passwordChangedAt: new Date() }
     });
 
-    res.status(200).json({ success: true, message: "Votre mot de passe a été réinitialisé. Vous pouvez maintenant vous connecter." });
+    res.status(200).json({ success: true, message: 'Mot de passe reinitialise. Vous pouvez maintenant vous connecter.' });
   } catch (error) {
-    if (error.message.includes('invalide') || error.message.includes('expiré')) {
-        return next(ErrorTypes.BadRequest(error.message));
-    }
     next(error);
   }
 };
@@ -552,75 +485,47 @@ export const resetPassword = async (req, res, next) => {
 // ============================================
 export const updateProfile = async (req, res, next) => {
   try {
-    console.log('=== Update Profile Debug ===');
-    console.log('Request body:', req.body);
-    console.log('User from middleware:', req.user);
-    
     const { fullName, email, avatarUrl } = req.body;
     const userId = req.user.id;
 
-    console.log('Updating profile for userId:', userId);
-    console.log('Profile data:', { fullName, email, avatarUrl });
-
-    // Validation des données
-    if (!fullName && !email && !avatarUrl) {
-      throw ErrorTypes.BadRequest('Au moins un champ (fullName, email ou avatarUrl) doit être fourni');
+    if (!fullName && !email && avatarUrl === undefined) {
+      throw ErrorTypes.BadRequest('Au moins un champ doit etre fourni');
     }
 
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw ErrorTypes.BadRequest('Email invalide');
     }
 
-    // Construire l'objet de mise à jour
+    if (email) {
+      const existingUser = await prisma.user.findFirst({
+        where: { email: email.toLowerCase(), id: { not: userId } }
+      });
+      if (existingUser) throw ErrorTypes.Conflict('Cet email est deja utilise par un autre compte');
+    }
+
     const updateData = {};
     if (fullName) updateData.fullName = fullName;
     if (email) updateData.email = email.toLowerCase();
     if (avatarUrl !== undefined) updateData.avatarUrl = avatarUrl;
 
-    // Vérifier si l'email est déjà utilisé par un autre utilisateur
-    if (email) {
-      const existingUser = await prisma.user.findFirst({
-        where: {
-          email: email.toLowerCase(),
-          id: { not: userId }
-        }
-      });
-
-      if (existingUser) {
-        throw ErrorTypes.Conflict('Cet email est déjà utilisé par un autre compte');
-      }
-    }
-
-    // Mettre à jour l'utilisateur
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: updateData,
       select: {
-        id: true,
-        email: true,
-        fullName: true,
-        theme: true,
-        emailVerified: true,
-        isActive: true,
-        storageUsed: true,
-        storageQuota: true,
-        avatarUrl: true,
-        createdAt: true,
-        updatedAt: true,
+        id: true, email: true, fullName: true, theme: true,
+        emailVerified: true, isActive: true, storageUsed: true,
+        storageQuota: true, avatarUrl: true, createdAt: true, updatedAt: true,
       }
     });
 
-    // Convertir BigInt en string pour éviter les erreurs de sérialisation
-    const safeUser = {
-      ...updatedUser,
-      storageUsed: updatedUser.storageUsed.toString(),
-      storageQuota: updatedUser.storageQuota.toString()
-    };
-
     res.status(200).json({
       success: true,
-      message: 'Profil mis à jour avec succès',
-      data: safeUser
+      message: 'Profil mis a jour avec succes',
+      data: {
+        ...updatedUser,
+        storageUsed: updatedUser.storageUsed.toString(),
+        storageQuota: updatedUser.storageQuota.toString()
+      }
     });
   } catch (error) {
     next(error);
@@ -628,46 +533,56 @@ export const updateProfile = async (req, res, next) => {
 };
 
 // ============================================
-// SIGNOUT
+// CHANGE PASSWORD
+// Web : envoie currentPassword + newPassword + confirmPassword → currentPassword verifie
+// Mobile : envoie seulement newPassword → passe directement
 // ============================================
-// Changer le mot de passe
 export const changePassword = async (req, res, next) => {
   try {
-    const { newPassword } = req.body;
-    const userId = req.user.id;
+    const { currentPassword, newPassword, confirmPassword } = req.body;
 
-    if (!newPassword) {
-      throw ErrorTypes.BadRequest('Le nouveau mot de passe est requis');
+    if (!newPassword) throw ErrorTypes.BadRequest('Le nouveau mot de passe est requis');
+
+    if (confirmPassword && newPassword !== confirmPassword) {
+      throw ErrorTypes.BadRequest('Les nouveaux mots de passe ne correspondent pas.');
     }
 
     if (newPassword.length < 6) {
-      throw ErrorTypes.BadRequest('Le nouveau mot de passe doit contenir au moins 6 caractères');
+      throw ErrorTypes.BadRequest('Le mot de passe doit contenir au moins 6 caracteres');
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+
+    if (currentPassword) {
+      if (!user.password) throw ErrorTypes.BadRequest('Impossible de changer le mot de passe pour ce compte.');
+      const valid = await bcrypt.compare(currentPassword, user.password);
+      if (!valid) throw ErrorTypes.Unauthorized('Mot de passe actuel incorrect.');
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({
-      where: { id: userId },
-      data: { password: hashedPassword }
+      where: { id: req.user.id },
+      data: { password: hashed, passwordChangedAt: new Date() }
     });
 
-    res.status(200).json({ success: true, message: 'Mot de passe modifié avec succès' });
+    res.status(200).json({ success: true, message: 'Mot de passe modifie avec succes' });
   } catch (error) {
     next(error);
   }
 };
 
-// Mettre à jour le thème
+// ============================================
+// UPDATE THEME
+// ============================================
 export const updateTheme = async (req, res, next) => {
   try {
     const { theme } = req.body;
-    const userId = req.user.id;
-
     if (!theme || !['light', 'dark', 'system'].includes(theme)) {
-      throw ErrorTypes.BadRequest('Thème invalide (light, dark ou system)');
+      throw ErrorTypes.BadRequest('Theme invalide (light, dark ou system)');
     }
 
     const user = await prisma.user.update({
-      where: { id: userId },
+      where: { id: req.user.id },
       data: { theme },
       select: { id: true, theme: true }
     });
@@ -678,39 +593,35 @@ export const updateTheme = async (req, res, next) => {
   }
 };
 
-// Upload avatar
+// ============================================
+// UPLOAD AVATAR
+// ============================================
 export const uploadAvatarHandler = async (req, res, next) => {
   try {
-    if (!req.file) {
-      throw ErrorTypes.BadRequest('Aucune image fournie');
-    }
+    if (!req.file) throw ErrorTypes.BadRequest('Aucune image fournie');
 
-    const userId = req.user.id;
     const avatarUrl = `/uploads/profiles/${req.file.filename}`;
 
-    const user = await prisma.user.update({
-      where: { id: userId },
-      data: { avatarUrl },
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        avatarUrl: true,
-      }
+    const current = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { avatarUrl: true }
     });
 
-    res.status(200).json({
-      success: true,
-      message: 'Avatar mis à jour avec succès',
-      data: user
+    if (current?.avatarUrl && current.avatarUrl.startsWith('/uploads/profiles/')) {
+      const oldPath = path.join(__dirname, '..', current.avatarUrl);
+      fs.unlink(oldPath, () => {});
+    }
+
+    const user = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { avatarUrl },
+      select: { id: true, email: true, fullName: true, avatarUrl: true }
     });
+
+    res.status(200).json({ success: true, message: 'Avatar mis a jour avec succes', data: user });
   } catch (error) {
     next(error);
   }
-};
-
-export const signout = async (req, res, next) => {
-  res.clearCookie('access_token').status(200).json({ success: true, message: 'Déconnecté' });
 };
 
 // ============================================
@@ -720,53 +631,37 @@ export const deleteAccount = async (req, res, next) => {
   try {
     const userId = req.user.id;
 
-    // 1. Récupérer tous les fichiers physiques à supprimer du disque
     const userFiles = await prisma.file.findMany({
       where: { ownerId: userId },
       select: { storageName: true }
     });
 
-    // 2. Récupérer l'avatar si existant
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { avatarUrl: true }
     });
 
-    // 3. Supprimer l'utilisateur (cascade supprime fichiers DB, dossiers, favoris, partages, tokens)
     await prisma.user.delete({ where: { id: userId } });
 
-    // 4. Supprimer les fichiers physiques du disque
     const { unlink } = await import('fs/promises');
     const { join } = await import('path');
 
     for (const file of userFiles) {
-      try {
-        await unlink(join('uploads', file.storageName));
-      } catch (err) {
-        // Ignorer si le fichier n'existe déjà plus
-      }
+      try { await unlink(join('uploads', file.storageName)); } catch {}
     }
 
-    // 5. Supprimer l'avatar physique si présent
-    if (user?.avatarUrl) {
+    if (user?.avatarUrl && user.avatarUrl.startsWith('/uploads/')) {
       try {
         const avatarFileName = user.avatarUrl.split('/').pop();
-        if (avatarFileName) {
-          await unlink(join('uploads', 'profiles', avatarFileName));
-        }
-      } catch (err) {
-        // Ignorer si l'avatar n'existe déjà plus
-      }
+        if (avatarFileName) await unlink(join('uploads', 'profiles', avatarFileName));
+      } catch {}
     }
 
-    // 6. Supprimer le cookie de session
     res.clearCookie('access_token').status(200).json({
       success: true,
-      message: 'Votre compte et toutes vos données ont été supprimés définitivement.'
+      message: 'Votre compte et toutes vos donnees ont ete supprimes definitivement.'
     });
   } catch (error) {
     next(error);
   }
 };
-
-

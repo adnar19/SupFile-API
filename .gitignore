@@ -4,6 +4,7 @@ node_modules
 # Prisma
 prisma/migrations/*
 !prisma/migrations/.gitkeep
+/CLAUDE.md
 
 /.qodo
 /.uploads

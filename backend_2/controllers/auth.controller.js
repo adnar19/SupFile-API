@@ -45,9 +45,9 @@ export const signup = async (req, res, next) => {
         password: hashedPassword,
         fullName: fullName || null,
         emailVerified: false,
-        // En prod (REQUIRE_EMAIL_VERIFICATION!=='false') on désactive le compte jusqu'à vérification,
-        // en dev on active directement pour faciliter le travail.  -- fusion WEB+MOBILE
-        isActive: process.env.REQUIRE_EMAIL_VERIFICATION === 'false',
+        // Le compte est toujours actif dès la création. emailVerified contrôle l'accès aux
+        // fonctionnalités nécessitant un email vérifié, mais ne bloque pas le compte.
+        isActive: true,
         avatarUrl: '/public/images/default-avatar-profile.avif',
       },
       select: {
@@ -117,6 +117,11 @@ export const signin = async (req, res, next) => {
 
     if (!user || !(await bcrypt.compare(password, user.password))) {
       throw ErrorTypes.Unauthorized('Email ou mot de passe incorrect');
+    }
+
+    // Si le compte est désactivé (ex: recréé sans vérification), le réactiver automatiquement
+    if (!user.isActive) {
+      await prisma.user.update({ where: { id: user.id }, data: { isActive: true } });
     }
 
     // Vérification email pilotée par l'environnement  -- apport WEB
@@ -250,14 +255,13 @@ export const OauthSignin = async (req, res, next) => {
       }
       console.log('New user created:', user.email);
     } else {
-      // Mettre à jour l'avatar OAuth seulement si l'utilisateur n'a pas uploadé un avatar custom
+      // Mettre à jour l'avatar OAuth et réactiver le compte si nécessaire
       const hasCustomAvatar = user.avatarUrl && user.avatarUrl.startsWith('/uploads/');
+      const updateData = { isActive: true, emailVerified: true };
       if (picture && !hasCustomAvatar && picture !== user.avatarUrl) {
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { avatarUrl: picture }
-        });
+        updateData.avatarUrl = picture;
       }
+      await prisma.user.update({ where: { id: user.id }, data: updateData });
       user = await prisma.user.findUnique({
         where: { email: email.toLowerCase() },
         select: {
@@ -707,6 +711,62 @@ export const uploadAvatarHandler = async (req, res, next) => {
 
 export const signout = async (req, res, next) => {
   res.clearCookie('access_token').status(200).json({ success: true, message: 'Déconnecté' });
+};
+
+// ============================================
+// DELETE ACCOUNT
+// ============================================
+export const deleteAccount = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    // 1. Récupérer tous les fichiers physiques à supprimer du disque
+    const userFiles = await prisma.file.findMany({
+      where: { ownerId: userId },
+      select: { storageName: true }
+    });
+
+    // 2. Récupérer l'avatar si existant
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { avatarUrl: true }
+    });
+
+    // 3. Supprimer l'utilisateur (cascade supprime fichiers DB, dossiers, favoris, partages, tokens)
+    await prisma.user.delete({ where: { id: userId } });
+
+    // 4. Supprimer les fichiers physiques du disque
+    const { unlink } = await import('fs/promises');
+    const { join } = await import('path');
+
+    for (const file of userFiles) {
+      try {
+        await unlink(join('uploads', file.storageName));
+      } catch (err) {
+        // Ignorer si le fichier n'existe déjà plus
+      }
+    }
+
+    // 5. Supprimer l'avatar physique si présent
+    if (user?.avatarUrl) {
+      try {
+        const avatarFileName = user.avatarUrl.split('/').pop();
+        if (avatarFileName) {
+          await unlink(join('uploads', 'profiles', avatarFileName));
+        }
+      } catch (err) {
+        // Ignorer si l'avatar n'existe déjà plus
+      }
+    }
+
+    // 6. Supprimer le cookie de session
+    res.clearCookie('access_token').status(200).json({
+      success: true,
+      message: 'Votre compte et toutes vos données ont été supprimés définitivement.'
+    });
+  } catch (error) {
+    next(error);
+  }
 };
 
 

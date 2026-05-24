@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-dotenv.config();
+dotenv.config({ path: new URL('.env', import.meta.url).pathname, override: true });
 
 import express from 'express';
 import http from 'http';
@@ -20,25 +20,20 @@ import FavoriteRouter from './routes/favorite.route.js';
 import { apiLimiter } from './middlewares/rateLimit.middleware.js';
 import { startCronJobs } from './utils/cron.js';
 
-// Fix pour la sérialisation des BigInt (Prisma) en JSON  -- apport WEB
 BigInt.prototype.toJSON = function () {
   return this.toString();
 };
 
 const app = express();
 
-// Indique à Express de faire confiance aux en-têtes envoyés par le proxy (Render, Nginx, etc.)
-// Nécessaire pour express-rate-limit en production  -- apport WEB
+
 app.set('trust proxy', 1);
 
 const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
 
-// Pour utiliser __dirname avec les modules ES
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// Vérification des fichiers critiques au démarrage  -- apport WEB
 if (process.env.NODE_ENV === 'production' && process.env.GOOGLE_APPLICATION_CREDENTIALS) {
   if (!fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
     console.error(`❌ CRITICAL: Firebase Service Account file not found at ${process.env.GOOGLE_APPLICATION_CREDENTIALS}`);
@@ -47,7 +42,6 @@ if (process.env.NODE_ENV === 'production' && process.env.GOOGLE_APPLICATION_CRED
   }
 }
 
-// CORS - whitelist Web + permissif pour Mobile  -- fusion WEB + MOBILE
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   'http://localhost:5173',
@@ -58,8 +52,6 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Pas d'origin = client mobile/Postman/curl => autorisé (apport MOBILE)
-    // Origin dans la whitelist ou *.vercel.app => autorisé (apport WEB)
     const isAllowed = !origin ||
       allowedOrigins.includes(origin) ||
       origin.endsWith('.vercel.app');
@@ -67,7 +59,6 @@ app.use(cors({
     if (isAllowed) {
       callback(null, true);
     } else {
-      // Mode souple: en dev/debug on autorise quand même
       callback(null, true);
     }
   },
@@ -77,7 +68,6 @@ app.use(cors({
   optionsSuccessStatus: 200,
 }));
 
-// Rate Limiting - Après CORS  -- apport WEB
 app.use(apiLimiter);
 
 // MIDDLEWARES
@@ -85,13 +75,10 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
 
-// Servir les fichiers statiques (avatars par défaut, etc.) depuis le dossier 'public'
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
-// Servir les fichiers uploadés depuis le dossier 'uploads'  -- apport MOBILE (preview/avatars)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Security Headers for Google Auth login popup  -- valeur WEB (unsafe-none plus permissif pour OAuth)
 app.use((req, res, next) => {
   res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
   next();
@@ -105,6 +92,18 @@ app.use('/users', UserRouter);
 app.use('/dashboard', DashboardRouter);
 app.use('/share', SharingRouter);
 app.use('/favorites', FavoriteRouter);
+
+// SWAGGER - doit être avant le 404 handler
+setupSwagger(app, PORT);
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    statusCode: 404,
+    message: `Route introuvable: ${req.method} ${req.originalUrl}`
+  });
+});
 
 // DATABASE CONNECTION
 startCronJobs();
@@ -131,6 +130,15 @@ server.listen(PORT, async () => {
   }
 });
 
+// 404 handler - retourne du JSON au lieu de HTML
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    statusCode: 404,
+    message: `Route introuvable: ${req.method} ${req.originalUrl}`
+  });
+});
+
 // ERROR HANDLING
 app.use((err, req, res, next) => {
   // Log détaillé pour voir la cause exacte des crash 500  -- apport WEB
@@ -148,7 +156,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// GRACEFUL SHUTDOWN
 const gracefulShutdown = async () => {
   console.log('\n📛 Received shutdown signal...');
   server.close(async () => {

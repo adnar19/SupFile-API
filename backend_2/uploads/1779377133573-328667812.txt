@@ -1,0 +1,15 @@
+La feuille de route du changement permet de structurer l’ensemble des actions de conduite du changement dans le temps.
+On commence par une phase de diagnostic et de cadrage pour identifier les impacts, les acteurs et les risques.
+Ensuite, on active les leviers du changement, notamment la formation, la communication et l’accompagnement, avant le déploiement technique.
+Ensuite le deployment est progressive par vagues de sites, avec un accompagnement renforcé lors des bascules.
+Enfin, une phase de stabilisation et de pilotage permet de suivre l’adoption et d’ajuster les actions si nécessaire.
+
+
+Le déploiement des leviers vise à transformer le diagnostic en actions concrètes.
+Le premier levier est la formation, qui concerne principalement les équipes IT et support afin de sécuriser l’exploitation.
+Le deuxième levier est la communication, avec des messages progressifs et rassurants, adaptés à des acteurs majoritairement attentistes.
+Enfin, l’accompagnement joue un rôle clé, avec du coaching pour les équipes IT, des ateliers participatifs et un support renforcé lors des bascules.
+Ces leviers ont été définis en cohérence avec les cadrans du changement et permettent de réduire les risques identifiés.
+
+En conclusion, la migration vers le SD-WAN est un projet structurant qui dépasse l’aspect purement technique. Le diagnostic du changement a permis de construire une feuille de route progressive et d’activer des leviers adaptés aux acteurs et aux impacts identifiés.
+La formation, la communication et l’accompagnement constituent les conditions clés de réussite pour sécuriser l’adoption et garantir la continuité de service.

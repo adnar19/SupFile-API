@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Interactive Graph Builder</title>
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <link href="https://unpkg.com/vis-network/styles/vis-network.min.css" rel="stylesheet" type="text/css" />
+    <style>
+        #mynetwork {
+            width: 800px;
+            height: 600px;
+            border: 1px solid rgb(90, 90, 90);
+        }
+    </style>
+</head>
+<body>
+    <div id="mynetwork"></div>
+    <script>
+        const container = document.getElementById('mynetwork');
+        const nodes = new vis.DataSet();
+        const edges = new vis.DataSet();
+        const data = { nodes: nodes, edges: edges };
+        const options = {
+            manipulation: {
+                addNode: function (data, callback) {
+                    // Prompts the user to enter a label when creating a new node
+                    const nodeLabel = prompt("Enter new node label:");
+                    if (nodeLabel) {
+                        data.label = nodeLabel;
+                        callback(data);
+                    }
+                },
+                addEdge: function (data, callback) {
+                    if (data.from === data.to) {
+                        alert("Cannot connect node to itself.");
+                        return;
+                    }
+                    const edgeCapacity = prompt("Enter edge capacity:");
+                    if (edgeCapacity) {
+                        data.label = edgeCapacity;
+                        callback(data);
+                    }
+                },
+                deleteNode: function (data, callback) {
+                    const nodeId = data.nodes[0];
+                    if (nodeId === 'input' || nodeId === 'output') {
+                        alert("Cannot delete the input or output node.");
+                        return;
+                    }
+                    callback(data);
+                },
+                disableConfiguration: true // Désactiver la possibilité de fermer la fenêtre de manipulation
+            },
+            edges: {
+                arrows: {
+                    to: {enabled: true, scaleFactor:0.5}
+                }
+            }
+        };
+
+        const network = new vis.Network(container, data, options);
+
+        network.on("selectNode", function (params) {
+            if (params.nodes.length === 1 && network.isCluster(params.nodes[0])) {
+                network.openCluster(params.nodes[0]);
+            }
+        });
+
+        network.on("doubleClick", function (params) {
+            if (params.nodes.length === 1) {
+                const nodeId = params.nodes[0];
+                const node = nodes.get(nodeId);
+                const newLabel = prompt("Enter new label for node " + node.label + ":");
+                if (newLabel) {
+                    nodes.update({id: nodeId, label: newLabel});
+                }
+            }
+        });
+
+        // Adding some initial nodes and edges
+        nodes.add([
+            {id: 'input', label: 'source'}, 
+            {id: 'output', label: 'puit'}
+        ]);
+    </script>
+</body>
+</html>

@@ -10,4 +10,4 @@ prisma/migrations/*
 /.uploads
 firebase.js
 /.vscode
-node_modules
+node_modulesSupFileFrontend.zip

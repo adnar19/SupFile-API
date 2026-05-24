@@ -1,13 +1,18 @@
-node_modules
+.env/local
+.env.*.local
+dist/
+package-lock.json
+
+/node_modules
 /.env
 /generated/prisma
 # Prisma
 prisma/migrations/*
 !prisma/migrations/.gitkeep
-/CLAUDE.md
-
+ 
 /.qodo
 /.uploads
 firebase.js
 /.vscode
-node_modulesSupFileFrontend.zip
+/firebase config/ServiceAccount.json
+/firebase config/firebase-admin.js

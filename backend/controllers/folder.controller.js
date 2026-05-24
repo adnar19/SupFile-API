@@ -101,8 +101,9 @@ export const createFolder = async (req, res, next) => {
 // ============================================
 export const getFolderContents = async (req, res, next) => {
   try {
-    const { id } = req.params; // Can be 'root' or a UUID
+    const id = req.params.id || 'root';
     const userId = req.user.id;
+    console.log(`Fetching contents for folder: ${id} (User: ${userId})`);
 
     let currentFolder;
 
@@ -126,8 +127,8 @@ export const getFolderContents = async (req, res, next) => {
       if (!currentFolder || currentFolder.ownerId !== userId) {
         // Vérification si c'est un dossier partagé (ou un sous-dossier d'un partage)
         // 1. Vérification directe (le dossier racine partagé)
-        const directShare = await prisma.internalShare.findUnique({
-          where: { folderId_sharedWithId: { folderId: id, sharedWithId: userId } }
+        const directShare = await prisma.internalShare.findFirst({
+          where: { folderId: id, sharedWithId: userId }
         });
 
         // 2. Vérification héritée (sous-dossier)
@@ -481,7 +482,25 @@ export const downloadFolder = async (req, res, next) => {
     const userId = req.user.id;
 
     const rootFolder = await prisma.folder.findUnique({ where: { id } });
-    if (!rootFolder || rootFolder.ownerId !== userId) throw ErrorTypes.NotFound("Dossier introuvable");
+    if (!rootFolder || rootFolder.isDeleted) throw ErrorTypes.NotFound("Dossier introuvable");
+
+    // Vérification des accès : Propriétaire OU Partage interne
+    if (rootFolder.ownerId !== userId) {
+      const directShare = await prisma.internalShare.findUnique({
+        where: { folderId_sharedWithId: { folderId: id, sharedWithId: userId } }
+      });
+
+      const allUserShares = await prisma.internalShare.findMany({
+        where: { sharedWithId: userId, folder: { isDeleted: false } },
+        include: { folder: { select: { path: true } } }
+      });
+
+      const isChildOfShare = allUserShares.some(share => rootFolder.path.startsWith(share.folder.path + '/'));
+
+      if (!directShare && !isChildOfShare) {
+        throw ErrorTypes.Forbidden("Vous n'avez pas la permission de télécharger ce dossier.");
+      }
+    }
 
     if (!rootFolder.path) {
       throw ErrorTypes.InternalError('Chemin du dossier manquant, impossible de générer l\'archive.');
@@ -490,7 +509,7 @@ export const downloadFolder = async (req, res, next) => {
     // 1. Récupérer tous les fichiers et sous-dossiers récursivement
     const folders = await prisma.folder.findMany({
       where: { 
-        ownerId: userId,
+        ownerId: rootFolder.ownerId, // Utiliser l'ID du propriétaire d'origine
         isDeleted: false,
         OR: [{ id: id }, { path: { startsWith: rootFolder.path + '/' } }]
       }
@@ -509,6 +528,7 @@ export const downloadFolder = async (req, res, next) => {
     
     res.attachment(`${rootFolder.name}.zip`);
     archive.pipe(res);
+    archive.on('error', (err) => next(err));
 
     // 3. Ajouter les structures de dossiers (pour s'assurer que les dossiers vides sont inclus)
     for (const folder of folders) {

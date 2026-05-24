@@ -1,6 +1,6 @@
 import express from 'express';
 import { protect } from '../middlewares/auth.middleware.js';
-import { createFolder, getFolderContents, deleteFolder, renameFolder, moveFolder, restoreFolder, deleteFolderPermanently } from '../controllers/folder.controller.js';
+import { createFolder, getFolderContents, deleteFolder, renameFolder, moveFolder, restoreFolder, deleteFolderPermanently, downloadFolder } from '../controllers/folder.controller.js';
 
 const router = express.Router();
 
@@ -173,6 +173,24 @@ router.post('/', createFolder);
  *                         $ref: '#/components/schemas/File'
  */
 router.get('/:id', getFolderContents);
+
+/**
+ * @swagger
+ * /folders/{id}/download:
+ *   get:
+ *     summary: Télécharger un dossier en ZIP
+ *     tags: [Folders]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ */
+router.get('/:id/download', downloadFolder);
 
 /**
  * @swagger

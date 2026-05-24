@@ -1,3 +1,4 @@
+import axios from 'axios';
 import bcrypt from 'bcrypt';
 import fs from 'fs';
 import path from 'path';
@@ -169,7 +170,7 @@ export const OauthSignin = async (req, res, next) => {
 
     let email, name, picture, uid;
 
-    // Firebase Admin vérifie les tokens Firebase (Google ET Microsoft via Firebase)
+    // Firebase Admin pour les tokens Firebase (web). Fallback Google tokeninfo pour mobile (expo-auth-session).
     try {
       const decodedToken = await admin.auth().verifyIdToken(idToken);
       email = decodedToken.email;
@@ -177,7 +178,22 @@ export const OauthSignin = async (req, res, next) => {
       picture = decodedToken.picture;
       uid = decodedToken.uid;
     } catch (firebaseError) {
-      throw ErrorTypes.Unauthorized(`Token invalide: ${firebaseError.message}`);
+      if (provider === 'google') {
+        try {
+          const { data: tokenInfo } = await axios.get(
+            `https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`
+          );
+          if (!tokenInfo.email) throw new Error('No email in token');
+          email = tokenInfo.email;
+          name = tokenInfo.name;
+          picture = tokenInfo.picture;
+          uid = tokenInfo.sub;
+        } catch {
+          throw ErrorTypes.Unauthorized('Token Google invalide');
+        }
+      } else {
+        throw ErrorTypes.Unauthorized(`Token invalide: ${firebaseError.message}`);
+      }
     }
 
     if (!email) throw ErrorTypes.BadRequest('Email invalide dans le token');

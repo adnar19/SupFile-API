@@ -1,6 +1,17 @@
 import express from 'express';
 import { protect } from '../middlewares/auth.middleware.js';
-import { getAllFolders, autoOrganizeFiles, createFolder, getFolderContents, deleteFolder, deleteFolderPermanently, renameFolder, moveFolder, restoreFolder, downloadFolder } from '../controllers/folder.controller.js';
+import {
+  getAllFolders,
+  autoOrganizeFiles,
+  createFolder,
+  getFolderContents,
+  deleteFolder,
+  deleteFolderPermanently,
+  renameFolder,
+  moveFolder,
+  restoreFolder,
+  downloadFolder
+} from '../controllers/folder.controller.js';
 
 const router = express.Router();
 
@@ -106,6 +117,7 @@ const router = express.Router();
  *   description: Gestion de l'arborescence des dossiers
  */
 
+// Protection globale - toutes les routes nécessitent une authentification
 router.use(protect);
 
 /**
@@ -132,9 +144,9 @@ router.get('/', getAllFolders);
  *       - cookieAuth: []
  *     responses:
  *       200:
- *         description: Fichiers organisés
+ *         description: Fichiers organisés automatiquement
  */
-router.post('/organize', protect, autoOrganizeFiles);
+router.post('/organize', autoOrganizeFiles);
 
 /**
  * @swagger
@@ -204,9 +216,27 @@ router.get('/:id', getFolderContents);
 
 /**
  * @swagger
+ * /folders/{id}/download:
+ *   get:
+ *     summary: Télécharger un dossier en ZIP
+ *     tags: [Folders]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ */
+router.get('/:id/download', downloadFolder);
+
+/**
+ * @swagger
  * /folders/{id}:
  *   delete:
- *     summary: Déplacer un dossier dans la corbeille
+ *     summary: Déplacer un dossier dans la corbeille (soft delete)
  *     tags: [Folders]
  *     security:
  *       - cookieAuth: []
@@ -220,20 +250,40 @@ router.get('/:id', getFolderContents);
  */
 router.delete('/:id', deleteFolder);
 
-// Supprimer définitivement un dossier
-router.delete('/:id/permanent', deleteFolderPermanently);
-
-// Renommer un dossier
+/**
+ * @swagger
+ * /folders/{id}/rename:
+ *   put:
+ *     summary: Renommer un dossier
+ *     tags: [Folders]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               name:
+ *                 type: string
+ */
 router.put('/:id/rename', renameFolder);
 
 // Déplacer un dossier
 router.put('/:id/move', moveFolder);
 
-// Restaurer un dossier de la corbeille
+// Restaurer un dossier depuis la corbeille
 router.put('/:id/restore', restoreFolder);
 
-// Télécharger un dossier en ZIP
-router.get('/:id/download', downloadFolder);
+// Supprimer définitivement un dossier (depuis la corbeille)
+router.delete('/:id/permanent', deleteFolderPermanently);
 
 export default router;
-

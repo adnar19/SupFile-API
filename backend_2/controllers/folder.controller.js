@@ -11,10 +11,34 @@ import fs from 'fs';
 const DEFAULT_FOLDERS = ['Documents', 'Photos', 'Videos', 'Audios'];
 
 // ============================================
+// HELPER - Gérer les conflits de noms (ex: "Folder" -> "Folder (1)")
+// ============================================
+const getUniqueFolderName = async (folderName, parentId, ownerId) => {
+  let name = folderName;
+  let counter = 1;
+
+  while (true) {
+    const existingFolder = await prisma.folder.findFirst({
+      where: {
+        name: name,
+        parentId: parentId,
+        ownerId: ownerId,
+        isDeleted: false
+      }
+    });
+
+    if (!existingFolder) return name;
+
+    name = `${folderName} (${counter})`;
+    counter++;
+  }
+};
+
+// ============================================
 // ENSURE DEFAULT FOLDERS - Créer les dossiers par défaut s'ils n'existent pas
 // ============================================
 const ensureDefaultFolders = async (userId) => {
-  // D'abord, nettoyer tous les dossiers avec des noms incorrects pour Audios
+  // Nettoyer les dossiers avec des noms incorrects pour Audios
   const incorrectAudioFolders = await prisma.folder.findMany({
     where: {
       ownerId: userId,
@@ -24,9 +48,7 @@ const ensureDefaultFolders = async (userId) => {
     }
   });
 
-  // Supprimer les dossiers avec des noms incorrects et déplacer leurs fichiers
   for (const folder of incorrectAudioFolders) {
-    // Trouver le dossier correct "Audios" ou le créer
     const correctFolder = await prisma.folder.findFirst({
       where: {
         ownerId: userId,
@@ -37,14 +59,12 @@ const ensureDefaultFolders = async (userId) => {
     });
 
     if (correctFolder) {
-      // Déplacer les fichiers du dossier incorrect vers "Audios"
       await prisma.file.updateMany({
         where: { folderId: folder.id },
         data: { folderId: correctFolder.id }
       });
     }
 
-    // Supprimer le dossier incorrect
     await prisma.folder.delete({ where: { id: folder.id } });
     console.log(`Deleted incorrect audio folder: ${folder.name} (${folder.id})`);
   }
@@ -61,23 +81,20 @@ const ensureDefaultFolders = async (userId) => {
       orderBy: { createdAt: 'asc' }
     });
 
-    // Garder le premier, supprimer les autres
     if (duplicates.length > 1) {
       const [keep, ...toDelete] = duplicates;
       for (const dup of toDelete) {
-        // Déplacer les fichiers du dossier dupliqué vers le premier
         await prisma.file.updateMany({
           where: { folderId: dup.id },
           data: { folderId: keep.id }
         });
-        // Supprimer le dossier dupliqué
         await prisma.folder.delete({ where: { id: dup.id } });
         console.log(`Deleted duplicate folder: ${folderName} (${dup.id})`);
       }
     }
   }
 
-  // Vérifier si les dossiers par défaut existent
+  // Créer les dossiers manquants
   const existingFolders = await prisma.folder.findMany({
     where: {
       ownerId: userId,
@@ -91,7 +108,6 @@ const ensureDefaultFolders = async (userId) => {
   const existingNames = existingFolders.map(f => f.name);
   const missingFolders = DEFAULT_FOLDERS.filter(name => !existingNames.includes(name));
 
-  // Créer les dossiers manquants
   for (const folderName of missingFolders) {
     await prisma.folder.create({
       data: {
@@ -108,62 +124,10 @@ const ensureDefaultFolders = async (userId) => {
 };
 
 // ============================================
-// GET ALL FOLDERS (Liste tous les dossiers de l'utilisateur)
-// ============================================
-export const getAllFolders = async (req, res, next) => {
-  try {
-    const userId = req.user.id;
-
-    // S'assurer que les dossiers par défaut existent
-    await ensureDefaultFolders(userId);
-
-    // Organiser automatiquement les fichiers dans les dossiers par défaut
-    await autoOrganizeFilesInternal(userId);
-
-    // Récupérer tous les dossiers non supprimés
-    const folders = await prisma.folder.findMany({
-      where: {
-        ownerId: userId,
-        isDeleted: false
-      },
-      include: {
-        favorites: { where: { userId } },
-        _count: {
-          select: {
-            files: { where: { isDeleted: false } },
-            subfolders: { where: { isDeleted: false } }
-          }
-        }
-      },
-      orderBy: [
-        { name: 'asc' }
-      ]
-    });
-
-    // Formater la réponse
-    const formattedFolders = folders.map(folder => ({
-      ...folder,
-      isFavorited: folder.favorites.length > 0,
-      fileCount: folder._count.files,
-      subfolderCount: folder._count.subfolders,
-      isDefault: DEFAULT_FOLDERS.includes(folder.name) && folder.parentId === null
-    }));
-
-    res.status(200).json({
-      success: true,
-      data: formattedFolders
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// ============================================
 // AUTO-ORGANIZE FILES INTERNAL - Fonction interne sans route
 // ============================================
 const autoOrganizeFilesInternal = async (userId) => {
   try {
-    // Récupérer les dossiers par défaut
     const defaultFolders = await prisma.folder.findMany({
       where: {
         ownerId: userId,
@@ -178,7 +142,6 @@ const autoOrganizeFilesInternal = async (userId) => {
       folderMap[f.name] = f.id;
     });
 
-    // Définir les catégories MIME pour chaque dossier
     const mimeCategories = {
       Photos: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'image/tiff', 'image/heic', 'image/heif'],
       Videos: ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/x-ms-wmv', 'video/webm', 'video/3gpp', 'video/3gpp2', 'video/mpeg', 'video/x-matroska'],
@@ -188,13 +151,11 @@ const autoOrganizeFilesInternal = async (userId) => {
 
     let movedCount = 0;
 
-    // Pour chaque catégorie, déplacer les fichiers
     for (const [folderName, mimeTypes] of Object.entries(mimeCategories)) {
       const folderId = folderMap[folderName];
       if (!folderId) continue;
 
-      // Trouver uniquement les fichiers sans dossier (à la racine)
-      // Ne pas déplacer les fichiers déjà dans des dossiers personnalisés
+      // Déplacer uniquement les fichiers sans dossier (à la racine)
       const files = await prisma.file.findMany({
         where: {
           ownerId: userId,
@@ -218,18 +179,60 @@ const autoOrganizeFilesInternal = async (userId) => {
     }
   } catch (error) {
     console.error('Auto-organize error:', error);
-    // Ne pas lancer d'erreur, c'est juste une fonction d'optimisation
   }
 };
 
 // ============================================
-// AUTO-ORGANIZE FILES - Organiser automatiquement les fichiers dans les dossiers par défaut
+// GET ALL FOLDERS (Liste tous les dossiers de l'utilisateur)
+// ============================================
+export const getAllFolders = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    await ensureDefaultFolders(userId);
+    await autoOrganizeFilesInternal(userId);
+
+    const folders = await prisma.folder.findMany({
+      where: {
+        ownerId: userId,
+        isDeleted: false
+      },
+      include: {
+        favorites: { where: { userId } },
+        _count: {
+          select: {
+            files: { where: { isDeleted: false } },
+            subfolders: { where: { isDeleted: false } }
+          }
+        }
+      },
+      orderBy: [{ name: 'asc' }]
+    });
+
+    const formattedFolders = folders.map(folder => ({
+      ...folder,
+      isFavorited: folder.favorites.length > 0,
+      fileCount: folder._count.files,
+      subfolderCount: folder._count.subfolders,
+      isDefault: DEFAULT_FOLDERS.includes(folder.name) && folder.parentId === null
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: formattedFolders
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================
+// AUTO-ORGANIZE FILES - Route publique
 // ============================================
 export const autoOrganizeFiles = async (req, res, next) => {
   try {
     const userId = req.user.id;
 
-    // Récupérer les dossiers par défaut
     const defaultFolders = await prisma.folder.findMany({
       where: {
         ownerId: userId,
@@ -244,31 +247,25 @@ export const autoOrganizeFiles = async (req, res, next) => {
       folderMap[f.name] = f.id;
     });
 
-    // Définir les catégories MIME pour chaque dossier
     const mimeCategories = {
-      Photos: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'image/tiff'],
-      Videos: ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/x-ms-wmv', 'video/webm'],
-      Audio: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/aac', 'audio/m4a'],
-      Documents: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'text/plain', 'text/csv']
+      Photos: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'image/tiff', 'image/heic', 'image/heif'],
+      Videos: ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/x-ms-wmv', 'video/webm', 'video/3gpp', 'video/3gpp2', 'video/mpeg', 'video/x-matroska'],
+      Audios: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg', 'audio/aac', 'audio/m4a', 'audio/x-m4a', 'audio/flac', 'audio/opus', 'audio/x-wav', 'audio/webm', 'audio/3gpp', 'audio/x-flac'],
+      Documents: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'text/plain', 'text/csv', 'application/rtf']
     };
 
     let movedCount = 0;
 
-    // Pour chaque catégorie, déplacer les fichiers
     for (const [folderName, mimeTypes] of Object.entries(mimeCategories)) {
       const folderId = folderMap[folderName];
       if (!folderId) continue;
 
-      // Trouver les fichiers non organisés (sans dossier ou dans un dossier non par défaut)
       const files = await prisma.file.findMany({
         where: {
           ownerId: userId,
           isDeleted: false,
           mimeType: { in: mimeTypes },
-          OR: [
-            { folderId: null }, // Sans dossier
-            { folder: { parentId: { not: null } } } // Dans un sous-dossier
-          ]
+          folderId: null
         }
       });
 
@@ -306,37 +303,37 @@ export const createFolder = async (req, res, next) => {
     let parentPath = '';
     let finalParentId = parentId;
 
-    // If parentId is provided, verify it exists and belongs to user
     if (parentId) {
       const parentFolder = await prisma.folder.findUnique({
         where: { id: parentId }
       });
 
       if (!parentFolder) throw ErrorTypes.NotFound('Dossier parent introuvable');
-      
-      // Si je ne suis pas le propriétaire, je dois avoir une permission d'écriture
+
+      // Vérification permission d'écriture si pas propriétaire
       if (parentFolder.ownerId !== userId) {
         const shares = await prisma.internalShare.findMany({
           where: { sharedWithId: userId, permission: 'WRITE' },
           include: { folder: true }
         });
-        
-        // On vérifie si le dossier parent fait partie d'une arborescence partagée en écriture
         const hasWriteAccess = shares.some(s => parentFolder.path.startsWith(s.folder.path));
         if (!hasWriteAccess) throw ErrorTypes.Forbidden("Vous n'avez pas la permission d'écrire dans ce dossier.");
       }
 
       parentPath = parentFolder.path;
     } else {
-      // If no parentId, create at root level (not under My Files)
-      parentPath = `/${name}`;
+      // Pas de parentId : créer à la racine sans rattacher à "My Files"
       finalParentId = null;
+      parentPath = `/${name}`;
     }
+
+    // Gestion des conflits de nom
+    const uniqueName = await getUniqueFolderName(name, finalParentId, userId);
 
     const folder = await prisma.folder.create({
       data: {
-        name,
-        path: parentPath,
+        name: uniqueName,
+        path: finalParentId ? `${parentPath}/${uniqueName}` : `/${uniqueName}`,
         parentId: finalParentId,
         ownerId: userId
       }
@@ -357,58 +354,52 @@ export const createFolder = async (req, res, next) => {
 // ============================================
 export const getFolderContents = async (req, res, next) => {
   try {
-    const { id } = req.params; // Can be 'root' or a UUID
+    const { id } = req.params;
     const userId = req.user.id;
 
     let currentFolder;
 
-    // Handle "root" alias
     if (id === 'root') {
       currentFolder = await prisma.folder.findFirst({
         where: { ownerId: userId, parentId: null }
       });
-      
-      // Fallback: Create root if it doesn't exist (safety net)
+
       if (!currentFolder) {
         currentFolder = await prisma.folder.create({
           data: { name: 'My Files', ownerId: userId, path: '/My Files' }
         });
       }
     } else {
-      currentFolder = await prisma.folder.findUnique({
-        where: { id }
-      });
-      
+      currentFolder = await prisma.folder.findUnique({ where: { id } });
+
       if (!currentFolder || currentFolder.ownerId !== userId) {
-        // Vérification si c'est un dossier partagé (ou un sous-dossier d'un partage)
-        // 1. Vérification directe (le dossier racine partagé)
-        const directShare = await prisma.internalShare.findUnique({
-          where: { folderId_sharedWithId: { folderId: id, sharedWithId: userId } }
+        // Vérification accès partagé direct
+        const directShare = await prisma.internalShare.findFirst({
+          where: { folderId: id, sharedWithId: userId }
         });
 
-        // 2. Vérification héritée (sous-dossier)
-        // On cherche tous les partages de l'utilisateur et on regarde si le chemin correspond
+        // Vérification accès partagé hérité (sous-dossier)
         const allUserShares = await prisma.internalShare.findMany({
-          where: { 
+          where: {
             sharedWithId: userId,
-            folder: { isDeleted: false } // SÉCURITÉ : Ignorer les partages provenant de dossiers supprimés
+            folder: { isDeleted: false }
           },
           include: { folder: { select: { path: true } } }
         });
 
-        const isChildOfShare = allUserShares.some(share => currentFolder && currentFolder.path.startsWith(share.folder.path + '/'));
+        const isChildOfShare = allUserShares.some(
+          share => currentFolder && currentFolder.path.startsWith(share.folder.path + '/')
+        );
 
         if (!directShare && !isChildOfShare) {
-           throw ErrorTypes.NotFound('Dossier introuvable ou accès refusé');
+          throw ErrorTypes.NotFound('Dossier introuvable ou accès refusé');
         }
       }
     }
 
-    // Déterminer le propriétaire à utiliser pour la requête
-    // Si c'est le dossier de l'utilisateur courant, utiliser userId
-    // Sinon (dossier partagé), utiliser le propriétaire du dossier
+    // Utiliser le bon ownerId selon que c'est son dossier ou un dossier partagé
     const queryOwnerId = currentFolder.ownerId === userId ? userId : currentFolder.ownerId;
-    
+
     console.log('getFolderContents:', {
       folderId: currentFolder.id,
       folderName: currentFolder.name,
@@ -417,13 +408,12 @@ export const getFolderContents = async (req, res, next) => {
       queryOwnerId
     });
 
-    // Fetch subfolders and files in parallel
     const [folders, files] = await Promise.all([
       prisma.folder.findMany({
-        where: { 
-          parentId: currentFolder.id, 
+        where: {
+          parentId: currentFolder.id,
           ownerId: queryOwnerId,
-          isDeleted: false 
+          isDeleted: false
         },
         include: {
           favorites: { where: { userId } },
@@ -437,10 +427,10 @@ export const getFolderContents = async (req, res, next) => {
         orderBy: { name: 'asc' }
       }),
       prisma.file.findMany({
-        where: { 
-          folderId: currentFolder.id, 
+        where: {
+          folderId: currentFolder.id,
           ownerId: queryOwnerId,
-          isDeleted: false 
+          isDeleted: false
         },
         include: {
           favorites: { where: { userId } }
@@ -455,9 +445,9 @@ export const getFolderContents = async (req, res, next) => {
       fileNames: files.map(f => f.name)
     });
 
-    // Build Breadcrumbs (Ancestors) - Optimized version
+    // Breadcrumbs optimisés via les paths
     const pathParts = currentFolder.path.split('/').filter(p => p);
-    const ancestorPaths = pathParts.map((part, index) => {
+    const ancestorPaths = pathParts.map((_, index) => {
       return '/' + pathParts.slice(0, index + 1).join('/');
     });
 
@@ -466,33 +456,62 @@ export const getFolderContents = async (req, res, next) => {
         ownerId: userId,
         path: { in: ancestorPaths }
       },
-      select: { id: true, name: true, path: true },
+      select: { id: true, name: true, path: true }
     });
 
-    // Sort breadcrumbs correctly based on path depth
     const breadcrumbs = breadcrumbsData.sort((a, b) => a.path.length - b.path.length);
+
+    // Pagination
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const formattedFolders = folders.map(f => {
+      const { favorites, _count, ...folderData } = f;
+      return {
+        ...folderData,
+        type: 'folder',
+        isFavorite: favorites.length > 0,
+        isFavorited: favorites.length > 0,
+        fileCount: _count.files,
+        subfolderCount: _count.subfolders
+      };
+    });
+
+    const formattedFiles = files.map(f => {
+      const { favorites, ...fileData } = f;
+      return {
+        ...fileData,
+        type: 'file',
+        size: f.size.toString(),
+        isFavorite: favorites.length > 0,
+        isFavorited: favorites.length > 0
+      };
+    });
+
+    const combined = [...formattedFolders, ...formattedFiles];
+    const totalItems = combined.length;
+    const totalPages = Math.ceil(totalItems / limit);
+    const paginatedItems = combined.slice(skip, skip + limit);
+
+    const paginatedFolders = paginatedItems.filter(item => item.type === 'folder');
+    const paginatedFiles = paginatedItems.filter(item => item.type === 'file');
 
     res.status(200).json({
       success: true,
       data: {
         currentFolder,
         breadcrumbs,
-        folders: folders.map(f => {
-          const { favorites, _count, ...folderData } = f;
-          return { 
-            ...folderData, 
-            isFavorited: favorites.length > 0,
-            fileCount: _count.files,
-            subfolderCount: _count.subfolders
-          };
-        }),
-        files: files.map(f => {
-          const { favorites, ...fileData } = f;
-          return { ...fileData, size: f.size.toString(), isFavorited: favorites.length > 0 };
-        })
+        folders: paginatedFolders,
+        files: paginatedFiles
+      },
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalItems,
+        limit
       }
     });
-
   } catch (error) {
     next(error);
   }
@@ -515,24 +534,20 @@ export const deleteFolder = async (req, res, next) => {
     // Empêcher la suppression des dossiers par défaut
     const isDefaultFolder = DEFAULT_FOLDERS.includes(folder.name) && folder.parentId === null;
     if (isDefaultFolder) {
-      throw ErrorTypes.Forbidden('Les dossiers par défaut (Documents, Photos, Videos, Audio) ne peuvent pas être supprimés.');
+      throw ErrorTypes.Forbidden('Les dossiers par défaut (Documents, Photos, Videos, Audios) ne peuvent pas être supprimés.');
     }
 
     if (!folder.path) {
       throw ErrorTypes.InternalError('Chemin du dossier manquant, impossible de supprimer récursivement.');
     }
 
-    // Suppression récursive (Soft Delete)
-    // On utilise une transaction pour garantir que tout ou rien n'est supprimé
     await prisma.$transaction(async (tx) => {
-      // 1. Identifier tous les sous-dossiers (le dossier cible + ses descendants)
-      // On utilise le chemin (path) pour trouver les descendants efficacement
       const foldersToDelete = await tx.folder.findMany({
         where: {
           ownerId: userId,
           OR: [
-            { id: id }, // Le dossier lui-même
-            { path: { startsWith: `${folder.path}/` } } // Ses enfants (ex: /Parent/Enfant)
+            { id: id },
+            { path: { startsWith: `${folder.path}/` } }
           ]
         },
         select: { id: true }
@@ -540,13 +555,11 @@ export const deleteFolder = async (req, res, next) => {
 
       const folderIds = foldersToDelete.map(f => f.id);
 
-      // 2. Marquer les dossiers comme supprimés
       await tx.folder.updateMany({
         where: { id: { in: folderIds } },
         data: { isDeleted: true, deletedAt: new Date() }
       });
 
-      // 3. Marquer les fichiers contenus dans ces dossiers comme supprimés
       await tx.file.updateMany({
         where: { folderId: { in: folderIds } },
         data: { isDeleted: true, deletedAt: new Date() }
@@ -576,29 +589,19 @@ export const renameFolder = async (req, res, next) => {
     const folder = await prisma.folder.findUnique({ where: { id } });
     if (!folder || folder.ownerId !== userId) throw ErrorTypes.NotFound("Dossier introuvable");
 
-    // Mise à jour du chemin pour le dossier et ses enfants
-    // Note: C'est une opération coûteuse si l'arborescence est profonde.
-    // Pour simplifier ici, on met juste à jour le nom. 
-    // Dans un système de production avec "path" matérialisé, il faudrait mettre à jour tous les enfants :
-    // oldPath: /A/OldName -> newPath: /A/NewName
-    // child: /A/OldName/B -> /A/NewName/B
-
     const oldPath = folder.path;
     const newPath = oldPath.substring(0, oldPath.lastIndexOf('/')) + '/' + name;
 
     await prisma.$transaction(async (tx) => {
-      // 1. Renommer le dossier
       await tx.folder.update({
         where: { id },
         data: { name, path: newPath }
       });
 
-      // 2. Mettre à jour les chemins des enfants (SQL brut souvent plus simple pour le remplacement de chaîne)
-      // Ici on le fait en JS pour rester agnostique, mais attention aux perfs sur gros volumes
       const children = await tx.folder.findMany({
-        where: { 
+        where: {
           ownerId: userId,
-          path: { startsWith: oldPath + '/' } 
+          path: { startsWith: oldPath + '/' }
         }
       });
 
@@ -623,7 +626,7 @@ export const renameFolder = async (req, res, next) => {
 export const moveFolder = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { parentId } = req.body; // null pour root
+    const { parentId } = req.body;
     const userId = req.user.id;
 
     const folder = await prisma.folder.findUnique({ where: { id } });
@@ -635,14 +638,12 @@ export const moveFolder = async (req, res, next) => {
     if (parentId) {
       const parent = await prisma.folder.findUnique({ where: { id: parentId } });
       if (!parent || parent.ownerId !== userId) throw ErrorTypes.BadRequest("Dossier de destination invalide");
-      
-      // Empêcher le déplacement d'un dossier dans lui-même ou ses enfants
+
       if (parent.path.startsWith(folder.path)) {
-         throw ErrorTypes.BadRequest("Impossible de déplacer un dossier dans lui-même");
+        throw ErrorTypes.BadRequest("Impossible de déplacer un dossier dans lui-même");
       }
       newPathPrefix = parent.path;
     } else {
-      // Déplacement vers la racine (My Files)
       const rootFolder = await prisma.folder.findFirst({ where: { ownerId: userId, parentId: null } });
       if (rootFolder) {
         finalParentId = rootFolder.id;
@@ -654,13 +655,11 @@ export const moveFolder = async (req, res, next) => {
     const newPath = `${newPathPrefix}/${folder.name}`;
 
     await prisma.$transaction(async (tx) => {
-      // 1. Déplacer le dossier
       await tx.folder.update({
         where: { id },
         data: { parentId: finalParentId, path: newPath }
       });
 
-      // 2. Mettre à jour les chemins des enfants
       const children = await tx.folder.findMany({
         where: { ownerId: userId, path: { startsWith: oldPath + '/' } }
       });
@@ -687,14 +686,12 @@ export const restoreFolder = async (req, res, next) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    
-    console.log('=== RESTORE FOLDER ===');
-    console.log('Folder ID:', id);
-    console.log('User ID:', userId);
+
+    console.log('=== RESTORE FOLDER ===', { id, userId });
 
     const folderToRestore = await prisma.folder.findFirst({
       where: { id, ownerId: userId },
-      include: { parent: true } // Include parent to check its status
+      include: { parent: true }
     });
 
     if (!folderToRestore) {
@@ -705,16 +702,13 @@ export const restoreFolder = async (req, res, next) => {
       return res.status(400).json({ success: false, message: "Le dossier n'est pas dans la corbeille." });
     }
 
-    // Empêche la restauration si le dossier parent est lui-même dans la corbeille.
     if (folderToRestore.parent && folderToRestore.parent.isDeleted) {
       throw ErrorTypes.BadRequest("Impossible de restaurer ce dossier car son dossier parent est dans la corbeille. Veuillez d'abord restaurer le dossier parent.");
     }
 
-    // Restauration atomique
     await prisma.$transaction(async (tx) => {
       let folderIdsToRestore = [folderToRestore.id];
 
-      // Si le path est disponible, restaurer récursivement tous les sous-dossiers
       if (folderToRestore.path) {
         const subFolders = await tx.folder.findMany({
           where: {
@@ -729,126 +723,13 @@ export const restoreFolder = async (req, res, next) => {
         }
       }
 
-      await tx.folder.updateMany({ where: { id: { in: folderIdsToRestore } }, data: { isDeleted: false } });
-      await tx.file.updateMany({ where: { folderId: { in: folderIdsToRestore } }, data: { isDeleted: false } });
+      await tx.folder.updateMany({ where: { id: { in: folderIdsToRestore } }, data: { isDeleted: false, deletedAt: null } });
+      await tx.file.updateMany({ where: { folderId: { in: folderIdsToRestore } }, data: { isDeleted: false, deletedAt: null } });
     });
 
     res.status(200).json({
       success: true,
       message: "Dossier et son contenu restaurés avec succès."
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// ============================================
-// PERMANENT DELETE FOLDER (Suppression définitive)
-// ============================================
-export const deleteFolderPermanently = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const userId = req.user.id;
-    
-    console.log('=== DELETE FOLDER PERMANENTLY ===');
-    console.log('Folder ID:', id);
-    console.log('User ID:', userId);
-
-    const folder = await prisma.folder.findUnique({
-      where: { id }
-    });
-
-    if (!folder || folder.ownerId !== userId) {
-      throw ErrorTypes.NotFound('Dossier introuvable');
-    }
-
-    if (!folder.isDeleted) {
-      throw ErrorTypes.BadRequest('Le dossier doit être dans la corbeille pour être supprimé définitivement.');
-    }
-
-    // Empêcher la suppression définitive des dossiers par défaut SEULEMENT s'ils sont à la racine
-    const isDefaultFolder = DEFAULT_FOLDERS.includes(folder.name) && folder.parentId === null;
-    if (isDefaultFolder) {
-      console.log(`Preventing permanent deletion of default folder: ${folder.name}`);
-      throw ErrorTypes.Forbidden(`Le dossier par défaut "${folder.name}" ne peut pas être supprimé définitivement.`);
-    }
-
-    console.log(`Proceeding with permanent deletion of folder: ${folder.name} (parentId: ${folder.parentId})`);
-
-    let totalSize = BigInt(0);
-
-    // Suppression définitive
-    await prisma.$transaction(async (tx) => {
-      // 1. Trouver tous les dossiers à supprimer (le dossier et ses sous-dossiers)
-      const whereClause = folder.path
-        ? { ownerId: userId, isDeleted: true, OR: [{ id: id }, { path: { startsWith: `${folder.path}/` } }] }
-        : { id: id };
-      const foldersToDelete = await tx.folder.findMany({
-        where: whereClause,
-        select: { id: true }
-      });
-
-      const folderIds = foldersToDelete.map(f => f.id);
-
-      // 2. Trouver tous les fichiers dans ces dossiers
-      const filesToDelete = await tx.file.findMany({
-        where: {
-          ownerId: userId,
-          isDeleted: true,
-          folderId: { in: folderIds }
-        },
-        select: { id: true, storageName: true, size: true }
-      });
-
-      // Calculer la taille totale
-      for (const file of filesToDelete) {
-        totalSize += file.size;
-      }
-
-      // 3. Supprimer les fichiers physiques
-      for (const file of filesToDelete) {
-        try {
-          const filePath = path.join(process.cwd(), 'uploads', file.storageName);
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-            console.log(`Deleted physical file: ${file.storageName}`);
-          } else {
-            console.log(`Physical file not found, skipping: ${file.storageName}`);
-          }
-        } catch (error) {
-          console.error(`Error deleting physical file ${file.storageName}:`, error.message);
-          // Continuer même si un fichier ne peut pas être supprimé physiquement
-        }
-      }
-
-      // 4. Supprimer les fichiers de la base de données
-      await tx.file.deleteMany({
-        where: {
-          ownerId: userId,
-          isDeleted: true,
-          folderId: { in: folderIds }
-        }
-      });
-
-      // 5. Supprimer les dossiers de la base de données
-      await tx.folder.deleteMany({
-        where: {
-          id: { in: folderIds }
-        }
-      });
-
-      // 6. Mettre à jour le quota de l'utilisateur
-      if (totalSize > BigInt(0)) {
-        await tx.user.update({
-          where: { id: userId },
-          data: { storageUsed: { decrement: totalSize } }
-        });
-      }
-    });
-
-    res.status(200).json({
-      success: true,
-      message: 'Dossier supprimé définitivement'
     });
   } catch (error) {
     next(error);
@@ -864,57 +745,66 @@ export const downloadFolder = async (req, res, next) => {
     const userId = req.user.id;
 
     const rootFolder = await prisma.folder.findUnique({ where: { id } });
-    if (!rootFolder || rootFolder.ownerId !== userId) throw ErrorTypes.NotFound("Dossier introuvable");
+    if (!rootFolder || rootFolder.isDeleted) throw ErrorTypes.NotFound("Dossier introuvable");
 
-    if (!rootFolder.path) {
-      throw ErrorTypes.InternalError('Chemin du dossier manquant, impossible de générer l\'archive.');
+    // Vérification accès : propriétaire OU partage interne
+    if (rootFolder.ownerId !== userId) {
+      const directShare = await prisma.internalShare.findFirst({
+        where: { folderId: id, sharedWithId: userId }
+      });
+
+      const allUserShares = await prisma.internalShare.findMany({
+        where: { sharedWithId: userId, folder: { isDeleted: false } },
+        include: { folder: { select: { path: true } } }
+      });
+
+      const isChildOfShare = allUserShares.some(share => rootFolder.path.startsWith(share.folder.path + '/'));
+
+      if (!directShare && !isChildOfShare) {
+        throw ErrorTypes.Forbidden("Vous n'avez pas la permission de télécharger ce dossier.");
+      }
     }
 
-    // 1. Récupérer tous les fichiers et sous-dossiers récursivement
+    if (!rootFolder.path) {
+      throw ErrorTypes.InternalError("Chemin du dossier manquant, impossible de générer l'archive.");
+    }
+
     const folders = await prisma.folder.findMany({
-      where: { 
-        ownerId: userId,
+      where: {
+        ownerId: rootFolder.ownerId,
         isDeleted: false,
         OR: [{ id: id }, { path: { startsWith: rootFolder.path + '/' } }]
       }
     });
-    
+
     const folderIds = folders.map(f => f.id);
     const files = await prisma.file.findMany({
-      where: { 
+      where: {
         folderId: { in: folderIds },
         isDeleted: false
       }
     });
 
-    // 2. Préparer l'archive
     const archive = archiver('zip', { zlib: { level: 9 } });
-    
     res.attachment(`${rootFolder.name}.zip`);
     archive.pipe(res);
+    archive.on('error', (err) => next(err));
 
-    // 3. Ajouter les structures de dossiers (pour s'assurer que les dossiers vides sont inclus)
     for (const folder of folders) {
       if (folder.id === rootFolder.id) continue;
-
-      // Calculer le chemin relatif par rapport au dossier racine téléchargé
       const relativePath = folder.path.substring(rootFolder.path.length + 1);
       archive.append(null, { name: relativePath + '/' });
     }
 
-    // 3. Ajouter les fichiers à l'archive en reconstruisant la structure
     for (const file of files) {
       const physicalPath = path.join(process.cwd(), 'uploads', file.storageName);
-      
+
       if (fs.existsSync(physicalPath)) {
-        // Trouver le dossier parent de ce fichier pour déterminer son chemin relatif dans le ZIP
         const parentFolder = folders.find(f => f.id === file.folderId);
         let relativePath = file.name;
 
         if (parentFolder && parentFolder.id !== rootFolder.id) {
-          // Calculer le chemin relatif par rapport au dossier racine téléchargé
-          // Ex: Root=/A, File=/A/B/file.txt -> relative = B/file.txt
-          const folderPart = parentFolder.path.substring(rootFolder.path.length + 1); // +1 pour le slash
+          const folderPart = parentFolder.path.substring(rootFolder.path.length + 1);
           relativePath = path.join(folderPart, file.name);
         }
 
@@ -923,7 +813,123 @@ export const downloadFolder = async (req, res, next) => {
     }
 
     await archive.finalize();
+  } catch (error) {
+    next(error);
+  }
+};
 
+// ============================================
+// PERMANENT DELETE FOLDER (Suppression définitive)
+// ============================================
+export const deleteFolderPermanently = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    console.log('=== DELETE FOLDER PERMANENTLY ===', { id, userId });
+
+    const folder = await prisma.folder.findFirst({
+      where: { id, ownerId: userId, isDeleted: true }
+    });
+
+    if (!folder) throw ErrorTypes.NotFound("Dossier introuvable dans la corbeille");
+
+    // Empêcher la suppression définitive des dossiers par défaut à la racine
+    const isDefaultFolder = DEFAULT_FOLDERS.includes(folder.name) && folder.parentId === null;
+    if (isDefaultFolder) {
+      throw ErrorTypes.Forbidden(`Le dossier par défaut "${folder.name}" ne peut pas être supprimé définitivement.`);
+    }
+
+    let totalSize = BigInt(0);
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Trouver tous les dossiers à supprimer
+      const whereClause = folder.path
+        ? { ownerId: userId, isDeleted: true, OR: [{ id: id }, { path: { startsWith: `${folder.path}/` } }] }
+        : { id: id };
+
+      const foldersToDelete = await tx.folder.findMany({
+        where: whereClause,
+        select: { id: true }
+      });
+
+      const folderIds = foldersToDelete.map(f => f.id);
+
+      // 2. Trouver tous les fichiers dans ces dossiers
+      const filesToDelete = await tx.file.findMany({
+        where: {
+          ownerId: userId,
+          folderId: { in: folderIds }
+        },
+        select: { id: true, storageName: true, size: true }
+      });
+
+      // 3. Calculer la taille totale
+      for (const file of filesToDelete) {
+        totalSize += file.size;
+      }
+
+      // 4. Supprimer physiquement les fichiers
+      for (const file of filesToDelete) {
+        try {
+          const filePath = path.join(process.cwd(), 'uploads', file.storageName);
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`Deleted physical file: ${file.storageName}`);
+          }
+        } catch (err) {
+          console.error(`Error deleting physical file ${file.storageName}:`, err.message);
+        }
+      }
+
+      // 5. Supprimer les favoris liés
+      await tx.favorite.deleteMany({
+        where: {
+          OR: [
+            { fileId: { in: filesToDelete.map(f => f.id) } },
+            { folderId: { in: folderIds } }
+          ]
+        }
+      });
+
+      // 6. Supprimer les partages publics liés
+      await tx.publicShare.deleteMany({
+        where: {
+          OR: [
+            { fileId: { in: filesToDelete.map(f => f.id) } },
+            { folderId: { in: folderIds } }
+          ]
+        }
+      });
+
+      // 7. Supprimer les partages internes liés
+      await tx.internalShare.deleteMany({
+        where: { folderId: { in: folderIds } }
+      });
+
+      // 8. Supprimer les fichiers de la DB
+      await tx.file.deleteMany({
+        where: { id: { in: filesToDelete.map(f => f.id) } }
+      });
+
+      // 9. Supprimer les dossiers de la DB
+      await tx.folder.deleteMany({
+        where: { id: { in: folderIds } }
+      });
+
+      // 10. Mettre à jour le quota
+      if (totalSize > BigInt(0)) {
+        await tx.user.update({
+          where: { id: userId },
+          data: { storageUsed: { decrement: totalSize } }
+        });
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Dossier et son contenu supprimés définitivement"
+    });
   } catch (error) {
     next(error);
   }

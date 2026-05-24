@@ -47,26 +47,26 @@ const allowedOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://localhost:3000',
-  'http://localhost:8081', // Expo dev server
+  'http://localhost:8081',
 ].filter(Boolean);
 
-app.use(cors({
+const corsOptions = {
   origin: (origin, callback) => {
     const isAllowed = !origin ||
       allowedOrigins.includes(origin) ||
-      origin.endsWith('.vercel.app');
-
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      callback(null, true);
-    }
+      origin.endsWith('.vercel.app') ||
+      origin.endsWith('.onrender.com');
+    callback(null, isAllowed ? origin : false);
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 200,
-}));
+  optionsSuccessStatus: 204,
+};
+
+// Preflight explicite pour toutes les routes
+app.options('*', cors(corsOptions));
+app.use(cors(corsOptions));
 
 app.use(apiLimiter);
 

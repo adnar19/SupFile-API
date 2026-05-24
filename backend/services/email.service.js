@@ -111,6 +111,8 @@ export const verifyAndConsumeToken = async (token, type) => {
 export const sendVerificationEmail = async (email, token, fullName) => {
   // --- DÉTECTION AUTOMATIQUE DE L'URL ---
   const baseUrl = await getBaseUrl();
+  // NE PAS MODIFIER : format ?token= requis par la page web /verify-email
+  // Le format /auth/verify-email/:token casse le frontend React (route inexistante)
   const verificationUrl = `${baseUrl}/verify-email?token=${token}`;
 
   const emailHtml = `

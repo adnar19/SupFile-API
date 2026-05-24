@@ -9,3 +9,5 @@ prisma/migrations/*
 /.uploads
 firebase.js
 /.vscode
+/firebase config/ServiceAccount.json
+/firebase config/firebase-admin.js

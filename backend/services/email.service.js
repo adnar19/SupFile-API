@@ -1,16 +1,9 @@
 import { nanoid } from 'nanoid';
 import prisma from '../lib/prisma.js';
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
-const transporter = nodemailer.createTransport({
-  host: 'smtp-relay.brevo.com',
-  port: 587,
-  secure: false,
-  auth: {
-    user: process.env.BREVO_USER,
-    pass: process.env.BREVO_SMTP_KEY,
-  },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
+const FROM_EMAIL = process.env.FROM_EMAIL || 'onboarding@resend.dev';
 
 const getBaseUrl = () => {
   return process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -71,11 +64,11 @@ export const sendVerificationEmail = async (email, token, fullName) => {
         <h1>Vérifiez votre compte SUPFile</h1>
       </div>
       <div style="padding: 30px; color: #333;">
-        <p>Bonjour <strong>${fullName || 'Utilisateur'}</strong> 👋,</p>
+        <p>Bonjour <strong>${fullName || 'Utilisateur'}</strong>,</p>
         <p>Pour activer votre compte, cliquez sur le bouton ci-dessous :</p>
         <div style="text-align: center; margin: 30px 0;">
           <a href="${verificationUrl}" style="background: #667eea; color: white; padding: 15px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">
-            ✅ Activer mon compte
+            Activer mon compte
           </a>
         </div>
         <p style="font-size: 12px; color: #666;">Ce lien expire dans 24 heures.</p>
@@ -84,15 +77,16 @@ export const sendVerificationEmail = async (email, token, fullName) => {
   `;
 
   try {
-    await transporter.sendMail({
-      from: `"SUPFile" <${process.env.BREVO_USER}>`,
+    const { error } = await resend.emails.send({
+      from: `SUPFile <${FROM_EMAIL}>`,
       to: email,
       subject: 'Vérifiez votre adresse email - SUPFile',
       html: emailHtml,
     });
-    console.log(`✅ [Brevo] Email de vérification envoyé à ${email}`);
+    if (error) throw new Error(error.message);
+    console.log(`✅ [Resend] Email de vérification envoyé à ${email}`);
   } catch (error) {
-    console.error('❌ [Brevo] Erreur:', error.message);
+    console.error('❌ [Resend] Erreur:', error.message);
     console.log(`🔗 [Fallback] Lien de vérification : ${verificationUrl}`);
   }
 };
@@ -121,15 +115,16 @@ export const sendPasswordResetEmail = async (email, token, fullName) => {
   `;
 
   try {
-    await transporter.sendMail({
-      from: `"SUPFile" <${process.env.BREVO_USER}>`,
+    const { error } = await resend.emails.send({
+      from: `SUPFile <${FROM_EMAIL}>`,
       to: email,
       subject: 'Réinitialisez votre mot de passe - SUPFile',
       html: emailHtml,
     });
-    console.log(`✅ [Brevo] Email de réinitialisation envoyé à ${email}`);
+    if (error) throw new Error(error.message);
+    console.log(`✅ [Resend] Email de réinitialisation envoyé à ${email}`);
   } catch (error) {
-    console.error('❌ [Brevo] Erreur:', error.message);
+    console.error('❌ [Resend] Erreur:', error.message);
     console.log(`🔗 [Fallback] Lien de réinitialisation : ${resetUrl}`);
   }
 };

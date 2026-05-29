@@ -311,8 +311,15 @@ export const downloadFile = async (req, res, next) => {
       where: { id: id }
     });
 
-    if (!file || file.ownerId !== req.user.id || file.isDeleted) {
+    if (!file || file.isDeleted) {
       throw ErrorTypes.NotFound("Fichier non trouvé ou accès refusé.");
+    }
+
+    if (file.ownerId !== req.user.id) {
+      const share = await prisma.internalShare.findFirst({
+        where: { fileId: file.id, sharedWithId: req.user.id }
+      });
+      if (!share) throw ErrorTypes.Forbidden("Accès refusé.");
     }
 
     const filePath = path.join(process.cwd(), 'uploads', file.storageName);

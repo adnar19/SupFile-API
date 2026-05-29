@@ -586,7 +586,7 @@ export const removeInternalShare = async (req, res, next) => {
     });
 
     if (!share) throw ErrorTypes.NotFound("Ce partage n'existe pas.");
-    if (share.sharedById !== userId) throw ErrorTypes.Forbidden("Vous n'êtes pas l'auteur de ce partage.");
+    if (share.sharedById !== userId && share.sharedWithId !== userId) throw ErrorTypes.Forbidden("Vous n'êtes pas autorisé à révoquer ce partage.");
 
     await prisma.internalShare.delete({ where: { id: share.id } });
 

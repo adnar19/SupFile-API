@@ -1,8 +1,16 @@
 import { nanoid } from 'nanoid';
 import prisma from '../lib/prisma.js';
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const transporter = nodemailer.createTransport({
+  host: 'smtp-relay.brevo.com',
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.BREVO_USER,
+    pass: process.env.BREVO_SMTP_KEY,
+  },
+});
 
 const getBaseUrl = () => {
   return process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -76,15 +84,15 @@ export const sendVerificationEmail = async (email, token, fullName) => {
   `;
 
   try {
-    await resend.emails.send({
-      from: process.env.FROM_EMAIL || 'SUPFile <onboarding@resend.dev>',
+    await transporter.sendMail({
+      from: `"SUPFile" <${process.env.BREVO_USER}>`,
       to: email,
       subject: 'Vérifiez votre adresse email - SUPFile',
       html: emailHtml,
     });
-    console.log(`✅ [Resend] Email de vérification envoyé à ${email}`);
+    console.log(`✅ [Brevo] Email de vérification envoyé à ${email}`);
   } catch (error) {
-    console.error('❌ [Resend] Erreur:', error.message);
+    console.error('❌ [Brevo] Erreur:', error.message);
     console.log(`🔗 [Fallback] Lien de vérification : ${verificationUrl}`);
   }
 };
@@ -113,15 +121,15 @@ export const sendPasswordResetEmail = async (email, token, fullName) => {
   `;
 
   try {
-    await resend.emails.send({
-      from: process.env.FROM_EMAIL || 'SUPFile <onboarding@resend.dev>',
+    await transporter.sendMail({
+      from: `"SUPFile" <${process.env.BREVO_USER}>`,
       to: email,
       subject: 'Réinitialisez votre mot de passe - SUPFile',
       html: emailHtml,
     });
-    console.log(`✅ [Resend] Email de réinitialisation envoyé à ${email}`);
+    console.log(`✅ [Brevo] Email de réinitialisation envoyé à ${email}`);
   } catch (error) {
-    console.error('❌ [Resend] Erreur:', error.message);
+    console.error('❌ [Brevo] Erreur:', error.message);
     console.log(`🔗 [Fallback] Lien de réinitialisation : ${resetUrl}`);
   }
 };

@@ -191,6 +191,19 @@ export const OauthSignin = async (req, res, next) => {
         } catch {
           throw ErrorTypes.Unauthorized('Token Google invalide');
         }
+      } else if (provider === 'microsoft') {
+        try {
+          const parts = idToken.split('.');
+          if (parts.length !== 3) throw new Error('Invalid JWT format');
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+          email = payload.email || payload.preferred_username || payload.upn;
+          name = payload.name;
+          picture = null;
+          uid = payload.sub || payload.oid;
+          if (!email) throw new Error('No email in Microsoft token');
+        } catch {
+          throw ErrorTypes.Unauthorized('Token Microsoft invalide');
+        }
       } else {
         throw ErrorTypes.Unauthorized(`Token invalide: ${firebaseError.message}`);
       }
